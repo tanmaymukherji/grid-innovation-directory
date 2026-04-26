@@ -304,19 +304,30 @@ function buildRows(parsed) {
 
 async function upsertRows(table, onConflict, rows) {
   if (!rows.length) return;
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      Prefer: "resolution=merge-duplicates,return=minimal",
-    },
-    body: JSON.stringify(rows),
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`${table} upsert failed: ${text || response.status}`);
+  const url = `${SUPABASE_URL}/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`;
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          Prefer: "resolution=merge-duplicates,return=minimal",
+        },
+        body: JSON.stringify(rows),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`${table} upsert failed: ${text || response.status}`);
+      }
+      return;
+    } catch (error) {
+      if (attempt === 4) throw error;
+      const waitMs = attempt * 2000;
+      console.warn(`${table} upsert retry ${attempt} after error: ${error.message}`);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
   }
 }
 
