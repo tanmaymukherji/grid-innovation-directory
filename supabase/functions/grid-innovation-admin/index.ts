@@ -9,6 +9,7 @@ const corsHeaders = {
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SELCO_VENDOR_SERVICE_ROLE_KEY") ?? "";
+const gridLocalImportToken = Deno.env.get("GRID_LOCAL_IMPORT_TOKEN") ?? "";
 // The public GRID site is commonly linked under grid.undp.org.in, but the live TLS
 // certificate is issued for grid.gian.org.in. The edge function must fetch via the
 // certificate-matching host to avoid strict TLS failures inside Supabase.
@@ -770,6 +771,60 @@ async function handleScheduledSync(receivedToken: string) {
   return errorResponse("Scheduled sync is disabled. Run sync manually from the admin page.", 403);
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function sanitizeImportRows(rows: unknown) {
+  if (!Array.isArray(rows)) return [];
+  return rows.filter((item) => isObjectRecord(item)) as Record<string, unknown>[];
+}
+
+async function handleImportGridBatch(importToken: string, requestedBy: string, vendors: unknown, products: unknown) {
+  if (!gridLocalImportToken || importToken !== gridLocalImportToken) {
+    return errorResponse("Invalid local import token.", 401);
+  }
+
+  const vendorRows = sanitizeImportRows(vendors).filter((row) => requireString(row.portal_vendor_id));
+  const productRows = sanitizeImportRows(products).filter((row) => requireString(row.portal_product_id) && requireString(row.portal_vendor_id));
+
+  if (!vendorRows.length && !productRows.length) {
+    return errorResponse("No valid import rows were provided.", 400);
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { data: runData, error: runError } = await supabase.from("grid_sync_runs").insert({
+    status: "running",
+    requested_by: requestedBy || "local-import",
+    started_at: new Date().toISOString(),
+  }).select("id").single();
+  if (runError || !runData?.id) return errorResponse("GRID import run could not be created.", 500);
+  const runId = String(runData.id);
+
+  try {
+    await upsertInBatches("grid_innovators", vendorRows, "portal_vendor_id", 100);
+    await upsertInBatches("grid_practices", productRows, "portal_product_id", 100);
+    await supabase.from("grid_sync_runs").update({
+      status: "success",
+      finished_at: new Date().toISOString(),
+      vendor_count: vendorRows.length,
+      product_count: productRows.length,
+      error_message: null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", runId);
+    return jsonResponse({ ok: true, vendorCount: vendorRows.length, productCount: productRows.length });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "GRID import batch failed.";
+    await supabase.from("grid_sync_runs").update({
+      status: "failed",
+      finished_at: new Date().toISOString(),
+      error_message: message,
+      updated_at: new Date().toISOString(),
+    }).eq("id", runId);
+    return errorResponse(message, 500);
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") return errorResponse("Method not allowed.", 405);
@@ -782,10 +837,14 @@ Deno.serve(async (request) => {
   const token = requireString(body.token);
   const password = requireString(body.password);
   const receivedCronToken = requireString(body.cronToken);
+  const importToken = requireString(body.importToken);
+  const requestedBy = requireString(body.requestedBy);
   const portalVendorId = requireString(body.portalVendorId);
   const updates = (body.updates && typeof body.updates === "object" && !Array.isArray(body.updates))
     ? body.updates as Record<string, unknown>
     : {};
+  const vendors = body.vendors;
+  const products = body.products;
 
   switch (action) {
     case "login":
@@ -800,6 +859,8 @@ Deno.serve(async (request) => {
       return await handleSyncGridDirectory(token);
     case "updateGridInnovator":
       return await handleUpdateGridInnovator(token, portalVendorId, updates);
+    case "importGridBatch":
+      return await handleImportGridBatch(importToken, requestedBy, vendors, products);
     case "scheduledSync":
       return await handleScheduledSync(receivedCronToken);
     default:

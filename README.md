@@ -19,6 +19,7 @@ Implementation notes:
 - The edge function scrapes GRID list pages plus detail pages, captures practice content, innovator fields, linked references, image URLs, attachment URLs, video URLs, and map coordinates, then upserts them into Supabase.
 - Admin sync behavior mirrors the GIAN project pattern: login, run manual refresh, inspect recent sync runs, and edit innovator-side fields from the admin panel.
 - Public search uses dropdowns for `Innovator`, `Practice Name`, `Location`, and `Tags`, plus a free-text keyword search box.
+- Because GRID has a large scrape surface and strict TLS/domain quirks, the reliable bulk-refresh path is the local importer script: `scripts/grid-local-import.mjs`, using direct Supabase upserts with a service-role key.
 
 Deployment:
 - GitHub Pages deploys automatically from `.github/workflows/deploy-pages.yml`

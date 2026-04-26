@@ -14,7 +14,7 @@
       <div>
         <p class="vendor-kicker">Grassroots Innovation Database (GRID)</p>
         <h1>Admin Sync</h1>
-        <p class="vendor-subtitle">Run manual GRID refresh batches, inspect sync history, and edit synced innovator records in the same admin pattern used for the GIAN project.</p>
+        <p class="vendor-subtitle">Inspect sync history and edit synced innovator records here. Full GRID refreshes should be run with the local importer because the source scrape is too heavy for Supabase edge runtime limits.</p>
       </div>
       <div class="vendor-hero-actions">
         <a class="btn btn-small" href="./index.html">Open Search</a>
@@ -32,7 +32,7 @@
 
         <div id="sessionPanel" class="session-panel">
           <h3>Admin Controls</h3>
-          <p class="section-note">Each run refreshes the next batch of GRID practices into Supabase and records the outcome below.</p>
+          <p class="section-note">The edge sync button is kept for parity, but full GRID refreshes should be run locally with the importer script in this repo.</p>
           <div class="btn-group">
             <button class="btn btn-success" type="button" id="runInnovationSync">Run Directory Sync</button>
             <button class="btn btn-danger btn-small" type="button" id="signOutButton">Sign Out</button>
