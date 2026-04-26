@@ -34,7 +34,10 @@ const editEls = {
   state: document.getElementById('editState'),
   pinCode: document.getElementById('editPinCode'),
   agroEcologicalZone: document.getElementById('editAgroEcologicalZone'),
+  finalContactEmail: document.getElementById('editFinalContactEmail'),
+  finalContactPhone: document.getElementById('editFinalContactPhone'),
   finalContactAddress: document.getElementById('editFinalContactAddress'),
+  websiteAddress: document.getElementById('editWebsiteAddress'),
   websiteDetails: document.getElementById('editWebsiteDetails'),
   contactSourceUrl: document.getElementById('editContactSourceUrl'),
   websiteStatus: document.getElementById('editWebsiteStatus'),
@@ -103,6 +106,8 @@ function buildVendorSearchText(vendor) {
     vendor.pin_code,
     vendor.agro_ecological_zone,
     vendor.final_contact_address,
+    vendor.final_contact_email,
+    vendor.final_contact_phone,
     vendor.about_vendor,
     vendor.contact_notes,
     practiceNames,
@@ -151,7 +156,10 @@ function fillEditor(vendor) {
   editEls.state.value = vendor.state || '';
   editEls.pinCode.value = vendor.pin_code || '';
   editEls.agroEcologicalZone.value = vendor.agro_ecological_zone || '';
+  editEls.finalContactEmail.value = vendor.final_contact_email || '';
+  editEls.finalContactPhone.value = vendor.final_contact_phone || '';
   editEls.finalContactAddress.value = vendor.final_contact_address || '';
+  editEls.websiteAddress.value = vendor.website_address || '';
   editEls.websiteDetails.value = vendor.website_details || '';
   editEls.contactSourceUrl.value = vendor.contact_source_url || '';
   editEls.websiteStatus.value = vendor.website_status || '';
@@ -268,6 +276,8 @@ async function saveInnovatorEdits(event) {
         state: editEls.state.value,
         pin_code: editEls.pinCode.value,
         agro_ecological_zone: editEls.agroEcologicalZone.value,
+        final_contact_email: editEls.finalContactEmail.value,
+        final_contact_phone: editEls.finalContactPhone.value,
         final_contact_address: editEls.finalContactAddress.value,
         website_details: editEls.websiteDetails.value,
         contact_source_url: editEls.contactSourceUrl.value,
