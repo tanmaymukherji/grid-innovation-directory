@@ -9,7 +9,10 @@ const corsHeaders = {
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SELCO_VENDOR_SERVICE_ROLE_KEY") ?? "";
-const gridBaseUrl = "https://grid.undp.org.in";
+// The public GRID site is commonly linked under grid.undp.org.in, but the live TLS
+// certificate is issued for grid.gian.org.in. The edge function must fetch via the
+// certificate-matching host to avoid strict TLS failures inside Supabase.
+const gridBaseUrl = "https://grid.gian.org.in";
 const gridListingUrl = `${gridBaseUrl}/practices`;
 const MAX_PRACTICES_PER_RUN = 40;
 const DETAIL_CONCURRENCY = 6;
