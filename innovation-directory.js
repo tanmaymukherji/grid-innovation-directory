@@ -428,7 +428,7 @@ function buildMarkerHtml(count) {
   const halo = count > 1 ? 10 : 7;
   const border = count > 1 ? 4 : 3;
   const label = count > 1 ? `<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font:700 13px/1 'Segoe UI',Arial,sans-serif;">${count}</span>` : '';
-  return `<div style="position:relative;width:${size}px;height:${size}px;border-radius:999px;background:#1976d2;border:${border}px solid #fff;box-shadow:0 0 0 ${halo}px rgba(25,118,210,.18),0 8px 18px rgba(25,118,210,.28);">${label}</div>`;
+  return `<div style="position:relative;width:${size}px;height:${size}px;border-radius:999px;background:#f57c00;border:${border}px solid #fff;box-shadow:0 0 0 ${halo}px rgba(245,124,0,.18),0 8px 18px rgba(245,124,0,.28);">${label}</div>`;
 }
 
 async function renderMapMarkers(vendors) {
