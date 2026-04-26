@@ -108,12 +108,10 @@ function getSection(html, heading) {
 
 function parseLabeledFields(sectionHtml) {
   const fields = [];
-  const parts = sectionHtml.split(/<b[^>]*>/i).slice(1);
-  for (const part of parts) {
-    const labelMatch = part.match(/^([\s\S]*?)<\/b>/i);
-    if (!labelMatch) continue;
-    const key = decodeHtml(labelMatch[1]).replace(/:$/, "");
-    const remainder = part.slice(labelMatch[0].length).split(/<hr[^>]*>/i)[0];
+  const chunks = [...sectionHtml.matchAll(/<b\b[^>]*>([\s\S]*?)<\/b>([\s\S]*?)(?=<b\b[^>]*>|$)/gi)];
+  for (const chunk of chunks) {
+    const key = decodeHtml(chunk[1]).replace(/:$/, "");
+    const remainder = chunk[2].replace(/<hr[^>]*>/gi, " ");
     const value = decodeHtml(remainder.replace(/<style[\s\S]*?<\/style>/gi, ""));
     const urls = [...remainder.matchAll(/href="([^"]+)"/gi)].map((item) => safeUrl(item[1]));
     if (key && value) fields.push({ key, value, urls: dedupe(urls) });
