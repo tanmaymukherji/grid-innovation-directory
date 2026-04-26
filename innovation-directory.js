@@ -73,7 +73,7 @@ function extractTownStateFromText(value) {
 
 function collectLocationValues() {
   return uniqueSortedValues([
-    ...directoryState.vendors.map((vendor) => buildTownStateLabel(vendor.city || vendor.district, vendor.state)),
+    ...directoryState.vendors.map((vendor) => buildTownStateLabel(vendor.city, vendor.state)),
     ...directoryState.products.map((product) => extractTownStateFromText(product.product_location_text)),
   ]);
 }
@@ -173,7 +173,7 @@ function buildVendorIndex(vendor) {
     ...(vendor.products || []).flatMap((product) => product.product_categories || []),
     ...(vendor.products || []).flatMap((product) => (product.product_specifications || []).flatMap((spec) => [spec?.key, spec?.value])),
   ].map(normalizeText).join(' ');
-  const locations = [vendor.location_text, vendor.district, vendor.state, vendor.country, vendor.final_contact_address, ...(vendor.service_locations || [])].map(normalizeText).join(' ');
+  const locations = [vendor.location_text, vendor.city, vendor.district, vendor.state, vendor.country, vendor.final_contact_address, ...(vendor.service_locations || [])].map(normalizeText).join(' ');
   const keyword = [vendor.vendor_name, vendor.about_vendor, practiceNames, practiceDescriptions, tags, locations, vendor.search_text].map(normalizeText).join(' ');
   return {
     supplier: normalizeText(vendor.vendor_name),

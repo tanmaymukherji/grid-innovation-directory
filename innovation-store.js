@@ -67,6 +67,7 @@ window.InnovationStore = (() => {
         mergedVendor.website_details = chooseLongerText(mergedVendor.website_details, vendor.website_details);
         mergedVendor.contact_notes = chooseLongerText(mergedVendor.contact_notes, vendor.contact_notes);
         mergedVendor.website_status = chooseLongerText(mergedVendor.website_status, vendor.website_status);
+        mergedVendor.city = chooseLongerText(mergedVendor.city, vendor.city);
         mergedVendor.district = chooseLongerText(mergedVendor.district, vendor.district);
         mergedVendor.state = chooseLongerText(mergedVendor.state, vendor.state);
         mergedVendor.pin_code = chooseLongerText(mergedVendor.pin_code, vendor.pin_code);
