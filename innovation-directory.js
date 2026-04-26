@@ -54,16 +54,27 @@ function populateSelectOptions(selectEl, values, placeholder) {
   selectEl.value = values.includes(previousValue) ? previousValue : '';
 }
 
+function buildTownStateLabel(town, state) {
+  const cleanTown = String(town || '').trim();
+  const cleanState = String(state || '').trim();
+  if (cleanTown && cleanState) return `${cleanTown}, ${cleanState}`;
+  return cleanTown || cleanState || '';
+}
+
+function extractTownStateFromText(value) {
+  const text = String(value || '').split('|')[0].trim();
+  if (!text) return '';
+  const parts = text.split(',').map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    return buildTownStateLabel(parts[0], parts[parts.length - 1]);
+  }
+  return text;
+}
+
 function collectLocationValues() {
   return uniqueSortedValues([
-    ...directoryState.vendors.flatMap((vendor) => [
-      vendor.location_text,
-      vendor.district,
-      vendor.state,
-      vendor.final_contact_address,
-      ...(vendor.service_locations || []),
-    ]),
-    ...directoryState.products.flatMap((product) => [product.product_location_text]),
+    ...directoryState.vendors.map((vendor) => buildTownStateLabel(vendor.city || vendor.district, vendor.state)),
+    ...directoryState.products.map((product) => extractTownStateFromText(product.product_location_text)),
   ]);
 }
 
