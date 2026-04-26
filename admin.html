@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GRID Directory Admin</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./config.js"></script>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="admin-shell">
+    <header class="vendor-hero">
+      <div>
+        <p class="vendor-kicker">Grassroots Innovation Database (GRID)</p>
+        <h1>Admin Sync</h1>
+        <p class="vendor-subtitle">Run manual GRID refresh batches, inspect sync history, and edit synced innovator records in the same admin pattern used for the GIAN project.</p>
+      </div>
+      <div class="vendor-hero-actions">
+        <a class="btn btn-small" href="./index.html">Open Search</a>
+      </div>
+    </header>
+
+    <main class="admin-grid">
+      <section class="section">
+        <h3>Admin Login</h3>
+        <form class="admin-form" id="loginForm">
+          <div class="form-group"><label for="adminPassword">Admin Password</label><input id="adminPassword" name="adminPassword" type="password" placeholder="Enter admin password" required /></div>
+          <div class="btn-group"><button class="btn btn-success" type="submit">Sign In</button></div>
+          <p class="admin-status" id="loginStatus"></p>
+        </form>
+
+        <div id="sessionPanel" class="session-panel">
+          <h3>Admin Controls</h3>
+          <p class="section-note">Each run refreshes the next batch of GRID practices into Supabase and records the outcome below.</p>
+          <div class="btn-group">
+            <button class="btn btn-success" type="button" id="runInnovationSync">Run Directory Sync</button>
+            <button class="btn btn-danger btn-small" type="button" id="signOutButton">Sign Out</button>
+          </div>
+          <p class="admin-status" id="sessionStatus"></p>
+        </div>
+      </section>
+
+      <section class="section queue-panel" id="innovationSyncPanel">
+        <h3>Sync History</h3>
+        <p class="admin-helper" id="innovationSyncMeta">Sign in as admin to view and run sync operations.</p>
+        <div class="admin-card-list" id="innovationSyncRuns"></div>
+      </section>
+
+      <section class="section queue-panel" id="adminEditorPanel">
+        <h3>Innovator Editor</h3>
+        <div class="form-group">
+          <label for="adminSearchInput">Search Innovators</label>
+          <input id="adminSearchInput" type="search" placeholder="Search by innovator, practice, location, district, state, or keyword" />
+        </div>
+        <p class="admin-helper" id="adminSearchMeta">Sign in as admin to search and edit innovator records.</p>
+        <div class="admin-editor-layout">
+          <div class="admin-card-list" id="adminSearchResults"></div>
+          <form class="admin-form admin-editor-form" id="adminEditForm">
+            <input id="editVendorId" type="hidden" />
+            <div class="admin-editor-empty" id="adminEditorEmpty">Select an innovator from the search results to edit synced GRID fields.</div>
+            <div id="adminEditorFields" class="admin-editor-fields">
+              <div class="form-group"><label for="editVendorName">Innovator Name</label><input id="editVendorName" type="text" /></div>
+              <div class="form-group"><label for="editPortalContactName">Portal Contact Name</label><input id="editPortalContactName" type="text" /></div>
+              <div class="form-group"><label for="editLocationText">Location Text</label><textarea id="editLocationText" rows="2"></textarea></div>
+              <div class="form-group"><label for="editDistrict">District</label><input id="editDistrict" type="text" /></div>
+              <div class="form-group"><label for="editState">State</label><input id="editState" type="text" /></div>
+              <div class="form-group"><label for="editPinCode">PIN Code</label><input id="editPinCode" type="text" /></div>
+              <div class="form-group"><label for="editAgroEcologicalZone">Agro-Ecological Zone</label><textarea id="editAgroEcologicalZone" rows="2"></textarea></div>
+              <div class="form-group"><label for="editFinalContactAddress">Address</label><textarea id="editFinalContactAddress" rows="3"></textarea></div>
+              <div class="form-group"><label for="editWebsiteDetails">Source / Website</label><input id="editWebsiteDetails" type="text" /></div>
+              <div class="form-group"><label for="editContactSourceUrl">Contact Source URL</label><input id="editContactSourceUrl" type="text" /></div>
+              <div class="form-group"><label for="editWebsiteStatus">Status</label><input id="editWebsiteStatus" type="text" /></div>
+              <div class="form-group"><label for="editAboutVendor">Innovator Details</label><textarea id="editAboutVendor" rows="8"></textarea></div>
+              <div class="form-group"><label for="editContactNotes">Notes</label><textarea id="editContactNotes" rows="4"></textarea></div>
+              <div class="btn-group">
+                <button class="btn btn-success" id="saveInnovatorButton" type="submit">Save Changes</button>
+              </div>
+              <p class="admin-status" id="adminEditStatus"></p>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="./innovation-store.js"></script>
+  <script src="./admin.js"></script>
+</body>
+</html>

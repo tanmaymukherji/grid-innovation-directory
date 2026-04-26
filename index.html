@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:," />
+  <title>GRID Practice Directory</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./config.js"></script>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="vendor-shell">
+    <header class="vendor-hero">
+      <div>
+        <p class="vendor-kicker">Grassroots Innovation Database (GRID)</p>
+        <h1>Practice and Innovator Search</h1>
+        <p class="vendor-subtitle">Search synced GRID practices by innovator, practice name, location, tags, or any keyword, then explore mapped results in a Selco-style interface.</p>
+      </div>
+    </header>
+
+    <main class="vendor-layout">
+      <aside class="vendor-sidebar">
+        <section class="section">
+          <h3>Search Filters</h3>
+          <div class="form-group"><label for="search-supplier">Innovator</label><select id="search-supplier"><option value="">All innovators</option></select></div>
+          <div class="form-group"><label for="search-product">Practice Name</label><select id="search-product"><option value="">All practices</option></select></div>
+          <div class="form-group"><label for="search-location">Location</label><select id="search-location"><option value="">All locations</option></select></div>
+          <div class="form-group"><label for="search-tags">Tags</label><select id="search-tags"><option value="">All tags</option></select></div>
+          <div class="form-group"><label for="search-keyword">Keyword</label><input id="search-keyword" type="search" placeholder="Any keyword" /></div>
+          <div class="btn-group">
+            <button class="btn" id="run-search" type="button">Search</button>
+            <button class="btn btn-danger btn-small" id="clear-search" type="button">Clear</button>
+          </div>
+        </section>
+
+        <section class="section">
+          <h3>Directory Summary</h3>
+          <div class="stats-grid">
+            <div class="stat-card"><div class="stat-number" id="vendor-total-count">0</div><div>Innovators</div></div>
+            <div class="stat-card"><div class="stat-number" id="product-total-count">0</div><div>Practices</div></div>
+            <div class="stat-card"><div class="stat-number" id="filtered-vendor-count">0</div><div>Matches</div></div>
+          </div>
+          <p class="section-note" id="directory-status">Loading GRID directory...</p>
+        </section>
+      </aside>
+
+      <section class="vendor-results-shell">
+        <div class="section">
+          <div class="vendor-results-header">
+            <div>
+              <h3>Map Results</h3>
+              <p class="section-note">The map follows the current results. Click a marker or result to focus the innovator and open its practices.</p>
+            </div>
+          </div>
+          <div class="vendor-map-grid">
+            <div id="results-map" class="vendor-map-canvas"></div>
+            <div id="map-results-list" class="vendor-map-list"></div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="vendor-results-header">
+            <div>
+              <h3>Innovator Results</h3>
+              <p class="section-note" id="results-summary">No results loaded yet.</p>
+            </div>
+          </div>
+          <div id="results-pagination-top" class="vendor-pagination"></div>
+          <div id="vendor-results" class="vendor-results-list"></div>
+          <div id="results-pagination-bottom" class="vendor-pagination"></div>
+        </div>
+      </section>
+    </main>
+
+    <div class="page-end-actions">
+      <a class="admin-sync-end" href="./admin.html" aria-label="Open admin sync">Admin Sync</a>
+    </div>
+  </div>
+
+  <script src="./innovation-store.js"></script>
+  <script src="./innovation-directory.js"></script>
+</body>
+</html>
