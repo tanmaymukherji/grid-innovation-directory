@@ -115,32 +115,49 @@ window.InnovationStore = (() => {
     return client;
   }
 
-  async function loadDirectory() {
+  async function fetchAllRows(table, orderColumn) {
     const supabase = getClient();
-    const [vendorsResult, productsResult] = await Promise.all([
-      supabase.from(VENDORS_TABLE()).select('*').order('vendor_name'),
-      supabase.from(PRODUCTS_TABLE()).select('*').order('product_name')
+    const pageSize = 1000;
+    const rows = [];
+    let from = 0;
+
+    while (true) {
+      const to = from + pageSize - 1;
+      const result = await supabase
+        .from(table)
+        .select('*')
+        .order(orderColumn)
+        .range(from, to);
+
+      if (result.error) throw new Error(`${table} load failed: ${result.error.message}`);
+
+      const batch = result.data || [];
+      rows.push(...batch);
+      if (batch.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return rows;
+  }
+
+  async function loadDirectory() {
+    const [vendors, products] = await Promise.all([
+      fetchAllRows(VENDORS_TABLE(), 'vendor_name'),
+      fetchAllRows(PRODUCTS_TABLE(), 'product_name')
     ]);
 
-    if (vendorsResult.error) throw new Error(`Innovator load failed: ${vendorsResult.error.message}`);
-    if (productsResult.error) throw new Error(`Practice load failed: ${productsResult.error.message}`);
-
-    return mergeVendorRecords(vendorsResult.data || [], productsResult.data || []);
+    return mergeVendorRecords(vendors, products);
   }
 
   async function loadAdminRecords() {
-    const supabase = getClient();
-    const [vendorsResult, productsResult] = await Promise.all([
-      supabase.from(VENDORS_TABLE()).select('*').order('vendor_name'),
-      supabase.from(PRODUCTS_TABLE()).select('*').order('product_name')
+    const [vendors, products] = await Promise.all([
+      fetchAllRows(VENDORS_TABLE(), 'vendor_name'),
+      fetchAllRows(PRODUCTS_TABLE(), 'product_name')
     ]);
 
-    if (vendorsResult.error) throw new Error(`Admin innovator load failed: ${vendorsResult.error.message}`);
-    if (productsResult.error) throw new Error(`Admin practice load failed: ${productsResult.error.message}`);
-
     return {
-      vendors: vendorsResult.data || [],
-      products: productsResult.data || []
+      vendors,
+      products
     };
   }
 
