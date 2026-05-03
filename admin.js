@@ -241,13 +241,13 @@ async function loadInnovationSyncRuns() {
 
 async function runInnovationSync() {
   runInnovationSyncButton.disabled = true;
-  setStatus(sessionStatus, 'Running manual GRID refresh batch...');
+  setStatus(sessionStatus, 'Checking GRID refresh path...');
   try {
     const data = await InnovationStore.adminRequest('syncGridDirectory', { token: getStoredToken() });
     setStatus(sessionStatus, `Manual sync completed: ${data.vendorCount || 0} innovators and ${data.productCount || 0} practices refreshed in this batch.`);
     await Promise.all([loadInnovationSyncRuns(), loadAdminDirectory()]);
   } catch (error) {
-    setStatus(sessionStatus, error.message || 'GRID sync failed.', true);
+    setStatus(sessionStatus, error.message || 'GRID refresh must be run locally with the importer script.', true);
   } finally {
     runInnovationSyncButton.disabled = false;
   }

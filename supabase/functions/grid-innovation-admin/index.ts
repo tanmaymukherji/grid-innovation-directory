@@ -753,12 +753,7 @@ async function runGridSync(requestedBy: string) {
 async function handleSyncGridDirectory(token: string) {
   const session = await validateSession(token);
   if (!session) return errorResponse("Invalid admin session.", 401);
-  try {
-    const result = await runGridSync(session.username);
-    return jsonResponse({ ok: true, ...result });
-  } catch (error) {
-    return errorResponse(error instanceof Error ? error.message : "GRID directory sync failed.", 500);
-  }
+  return errorResponse("GRID refreshes must be run locally with scripts/grid-local-import.mjs because the source scrape exceeds Supabase edge runtime limits.", 409);
 }
 
 async function handleScheduledSync(receivedToken: string) {
