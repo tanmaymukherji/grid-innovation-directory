@@ -11,18 +11,27 @@ const adminEditorPanel = document.getElementById('adminEditorPanel');
 const adminSearchInput = document.getElementById('adminSearchInput');
 const adminSearchMeta = document.getElementById('adminSearchMeta');
 const adminSearchResults = document.getElementById('adminSearchResults');
+const adminPracticeList = document.getElementById('adminPracticeList');
 const adminEditForm = document.getElementById('adminEditForm');
+const adminPracticeForm = document.getElementById('adminPracticeForm');
 const adminEditorEmpty = document.getElementById('adminEditorEmpty');
 const adminEditorFields = document.getElementById('adminEditorFields');
 const adminEditStatus = document.getElementById('adminEditStatus');
+const adminPracticeEmpty = document.getElementById('adminPracticeEmpty');
+const adminPracticeFields = document.getElementById('adminPracticeFields');
+const adminPracticeStatus = document.getElementById('adminPracticeStatus');
 const saveInnovatorButton = document.getElementById('saveInnovatorButton');
+const savePracticeButton = document.getElementById('savePracticeButton');
+const productSixMPreview = document.getElementById('productSixMPreview');
 
 const ADMIN_SESSION_KEY = 'grid-innovation-admin-session';
+const SIX_M_OPTIONS = ['Manpower', 'Method', 'Material', 'Machine', 'Money', 'Market'];
 const adminState = {
   vendors: [],
   products: [],
   filteredVendors: [],
   selectedVendorId: '',
+  selectedProductId: '',
 };
 
 const editEls = {
@@ -45,8 +54,18 @@ const editEls = {
   contactNotes: document.getElementById('editContactNotes'),
 };
 
+const editPracticeEls = {
+  productId: document.getElementById('editProductId'),
+  productName: document.getElementById('editProductName'),
+  sourceTags: document.getElementById('editProductSourceTags'),
+  reviewedTags: document.getElementById('editProductReviewedTags'),
+  sixm: document.getElementById('editProductSixM'),
+  adminNotes: document.getElementById('editProductAdminNotes'),
+  productLink: document.getElementById('editProductLink'),
+};
+
 function setStatus(element, message, isError = false) {
-  element.textContent = message;
+  element.textContent = message || '';
   element.classList.toggle('error', Boolean(isError));
 }
 
@@ -57,6 +76,25 @@ function escapeHtml(value) {
 function formatDate(value) {
   if (!value) return 'Unknown date';
   return new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function parseCommaList(value) {
+  return [...new Set(String(value || '').split(',').map((item) => item.trim()).filter(Boolean))];
+}
+
+function normalizeSixMValues(value) {
+  const normalizedMap = new Map(SIX_M_OPTIONS.map((item) => [item.toLowerCase(), item]));
+  return parseCommaList(value)
+    .map((item) => normalizedMap.get(String(item || '').trim().toLowerCase()) || '')
+    .filter(Boolean);
+}
+
+function renderSixMPreview(value) {
+  if (!productSixMPreview) return;
+  const items = normalizeSixMValues(value);
+  productSixMPreview.innerHTML = items.length
+    ? items.map((item) => `<span class="innovation-chip">${escapeHtml(item)}</span>`).join('')
+    : '<span class="innovation-chip innovation-chip-muted">No valid 6M categories selected</span>';
 }
 
 function getStoredToken() {
@@ -92,11 +130,23 @@ function renderInnovationSyncRuns(items) {
   });
 }
 
+function getPracticeRecordsForVendor(vendorId) {
+  return adminState.products
+    .filter((product) => product.portal_vendor_id === vendorId)
+    .sort((left, right) => String(left.product_name || '').localeCompare(String(right.product_name || '')));
+}
+
+function getEffectiveProductTags(product) {
+  const reviewed = Array.isArray(product?.reviewed_tags) ? product.reviewed_tags.filter(Boolean) : [];
+  return reviewed.length ? reviewed : (Array.isArray(product?.tags) ? product.tags.filter(Boolean) : []);
+}
+
 function buildVendorSearchText(vendor) {
-  const practiceNames = adminState.products
-    .filter((product) => product.portal_vendor_id === vendor.portal_vendor_id)
-    .map((product) => product.product_name)
-    .join(' ');
+  const linkedProducts = getPracticeRecordsForVendor(vendor.portal_vendor_id);
+  const practiceNames = linkedProducts.map((product) => product.product_name).join(' ');
+  const practiceTags = linkedProducts.flatMap((product) => getEffectiveProductTags(product)).join(' ');
+  const practiceSixM = linkedProducts.flatMap((product) => product.six_m_categories || []).join(' ');
+  const practiceNotes = linkedProducts.map((product) => product.admin_notes || '').join(' ');
   return [
     vendor.vendor_name,
     vendor.portal_contact_name,
@@ -111,6 +161,9 @@ function buildVendorSearchText(vendor) {
     vendor.about_vendor,
     vendor.contact_notes,
     practiceNames,
+    practiceTags,
+    practiceSixM,
+    practiceNotes,
     (vendor.tags || []).join(' '),
   ].join(' ').toLowerCase();
 }
@@ -133,7 +186,7 @@ function renderAdminResults() {
 
   adminSearchMeta.textContent = `${adminState.filteredVendors.length} innovator record${adminState.filteredVendors.length === 1 ? '' : 's'} found`;
   adminState.filteredVendors.forEach((vendor) => {
-    const products = adminState.products.filter((product) => product.portal_vendor_id === vendor.portal_vendor_id).slice(0, 3);
+    const products = getPracticeRecordsForVendor(vendor.portal_vendor_id).slice(0, 3);
     const card = document.createElement('article');
     card.className = `admin-card admin-search-card${vendor.portal_vendor_id === adminState.selectedVendorId ? ' active' : ''}`;
     card.innerHTML = `<div class="admin-card-header"><h4>${escapeHtml(vendor.vendor_name || 'Unknown Innovator')}</h4><span class="admin-badge approved">${escapeHtml(String(products.length || vendor.products_count || 0))} practices</span></div><p><strong>Location:</strong> ${escapeHtml(vendor.location_text || vendor.final_contact_address || 'Not listed')}</p><p><strong>District/State:</strong> ${escapeHtml([vendor.district, vendor.state].filter(Boolean).join(', ') || 'Not listed')}</p><small>${escapeHtml(products.map((product) => product.product_name).join(' | ') || 'No linked practices listed')}</small>`;
@@ -142,9 +195,14 @@ function renderAdminResults() {
   });
 }
 
-function setEditorVisible(isVisible) {
+function setInnovatorEditorVisible(isVisible) {
   adminEditorEmpty.style.display = isVisible ? 'none' : 'block';
   adminEditorFields.classList.toggle('active', Boolean(isVisible));
+}
+
+function setPracticeEditorVisible(isVisible) {
+  adminPracticeEmpty.style.display = isVisible ? 'none' : 'block';
+  adminPracticeFields.classList.toggle('active', Boolean(isVisible));
 }
 
 function fillEditor(vendor) {
@@ -165,18 +223,75 @@ function fillEditor(vendor) {
   editEls.websiteStatus.value = vendor.website_status || '';
   editEls.aboutVendor.value = vendor.about_vendor || '';
   editEls.contactNotes.value = vendor.contact_notes || '';
-  setEditorVisible(true);
+  setInnovatorEditorVisible(true);
+}
+
+function renderPracticeList(vendorId) {
+  adminPracticeList.innerHTML = '';
+  if (!vendorId) {
+    adminPracticeList.innerHTML = '<article class="admin-card"><p>Select an innovator to load its practices.</p></article>';
+    return;
+  }
+  const products = getPracticeRecordsForVendor(vendorId);
+  if (!products.length) {
+    adminPracticeList.innerHTML = '<article class="admin-card"><p>No practice records are linked to this innovator.</p></article>';
+    return;
+  }
+  products.forEach((product) => {
+    const card = document.createElement('article');
+    card.className = `admin-card admin-search-card${product.portal_product_id === adminState.selectedProductId ? ' active' : ''}`;
+    const tags = getEffectiveProductTags(product).slice(0, 6).join(', ') || 'No tags reviewed';
+    const sixm = (product.six_m_categories || []).join(', ') || 'No 6M set';
+    card.innerHTML = `<div class="admin-card-header"><h4>${escapeHtml(product.product_name || 'Untitled practice')}</h4><span class="admin-badge approved">${escapeHtml((product.product_categories || []).join(', ') || 'GRID Practice')}</span></div><p><strong>Tags:</strong> ${escapeHtml(tags)}</p><p><strong>6M:</strong> ${escapeHtml(sixm)}</p><small>${escapeHtml(product.practice_summary || product.product_description || 'No summary saved')}</small>`;
+    card.addEventListener('click', () => selectProduct(product.portal_product_id));
+    adminPracticeList.appendChild(card);
+  });
+}
+
+function fillPracticeEditor(product) {
+  editPracticeEls.productId.value = product.portal_product_id || '';
+  editPracticeEls.productName.value = product.product_name || '';
+  editPracticeEls.sourceTags.value = (product.tags || []).join(', ');
+  editPracticeEls.reviewedTags.value = (product.reviewed_tags || []).join(', ');
+  editPracticeEls.sixm.value = (product.six_m_categories || []).join(', ');
+  editPracticeEls.adminNotes.value = product.admin_notes || '';
+  editPracticeEls.productLink.value = product.product_link || '';
+  renderSixMPreview(editPracticeEls.sixm.value);
+  setPracticeEditorVisible(true);
+}
+
+function selectProduct(productId) {
+  adminState.selectedProductId = productId || '';
+  const product = adminState.products.find((item) => item.portal_product_id === productId);
+  if (!product) {
+    setPracticeEditorVisible(false);
+    renderPracticeList(adminState.selectedVendorId);
+    return;
+  }
+  fillPracticeEditor(product);
+  renderPracticeList(product.portal_vendor_id);
+  setStatus(adminPracticeStatus, '');
 }
 
 function selectVendor(vendorId) {
-  adminState.selectedVendorId = vendorId;
+  adminState.selectedVendorId = vendorId || '';
   const vendor = adminState.vendors.find((item) => item.portal_vendor_id === vendorId);
   if (!vendor) {
-    setEditorVisible(false);
+    setInnovatorEditorVisible(false);
+    adminState.selectedProductId = '';
+    renderPracticeList('');
+    setPracticeEditorVisible(false);
     return;
   }
   fillEditor(vendor);
   renderAdminResults();
+  renderPracticeList(vendor.portal_vendor_id);
+  const products = getPracticeRecordsForVendor(vendor.portal_vendor_id);
+  const nextProductId = products.some((item) => item.portal_product_id === adminState.selectedProductId)
+    ? adminState.selectedProductId
+    : (products[0]?.portal_product_id || '');
+  if (nextProductId) selectProduct(nextProductId);
+  else setPracticeEditorVisible(false);
   setStatus(adminEditStatus, '');
 }
 
@@ -193,7 +308,10 @@ async function loadAdminDirectory() {
       selectVendor(adminState.selectedVendorId);
     } else {
       adminState.selectedVendorId = '';
-      setEditorVisible(false);
+      adminState.selectedProductId = '';
+      setInnovatorEditorVisible(false);
+      setPracticeEditorVisible(false);
+      renderPracticeList('');
     }
   } catch (error) {
     adminSearchMeta.textContent = error.message || 'Innovator records could not be loaded.';
@@ -244,7 +362,7 @@ async function runInnovationSync() {
   setStatus(sessionStatus, 'Checking GRID refresh path...');
   try {
     const data = await InnovationStore.adminRequest('syncGridDirectory', { token: getStoredToken() });
-    setStatus(sessionStatus, `Manual sync completed: ${data.vendorCount || 0} innovators and ${data.productCount || 0} practices refreshed in this batch.`);
+    setStatus(sessionStatus, data.message || `Manual sync completed: ${data.vendorCount || 0} innovators and ${data.productCount || 0} practices refreshed in this batch.`);
     await Promise.all([loadInnovationSyncRuns(), loadAdminDirectory()]);
   } catch (error) {
     setStatus(sessionStatus, error.message || 'GRID refresh must be run locally with the importer script.', true);
@@ -297,6 +415,39 @@ async function saveInnovatorEdits(event) {
   }
 }
 
+async function savePracticeEdits(event) {
+  event.preventDefault();
+  const token = getStoredToken();
+  const portalProductId = String(editPracticeEls.productId.value || '').trim();
+  if (!token || !portalProductId) {
+    setStatus(adminPracticeStatus, 'Select a practice record first.', true);
+    return;
+  }
+
+  savePracticeButton.disabled = true;
+  setStatus(adminPracticeStatus, 'Saving practice classification...');
+  try {
+    const payload = {
+      token,
+      portalProductId,
+      updates: {
+        reviewed_tags: parseCommaList(editPracticeEls.reviewedTags.value),
+        six_m_categories: normalizeSixMValues(editPracticeEls.sixm.value),
+        admin_notes: editPracticeEls.adminNotes.value,
+      },
+    };
+    await InnovationStore.adminRequest('updateGridPractice', payload);
+    setStatus(adminPracticeStatus, 'Practice classification updated.');
+    await loadAdminDirectory();
+    selectVendor(adminState.selectedVendorId);
+    selectProduct(portalProductId);
+  } catch (error) {
+    setStatus(adminPracticeStatus, error.message || 'Practice update failed.', true);
+  } finally {
+    savePracticeButton.disabled = false;
+  }
+}
+
 loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const password = String(document.getElementById('adminPassword').value || '').trim();
@@ -328,15 +479,19 @@ signOutButton.addEventListener('click', async () => {
   adminState.products = [];
   adminState.filteredVendors = [];
   adminState.selectedVendorId = '';
+  adminState.selectedProductId = '';
   updateSessionUi(false);
   innovationSyncMeta.textContent = 'Sign in as admin to view and run sync operations.';
   adminSearchMeta.textContent = 'Sign in as admin to search and edit innovator records.';
   innovationSyncRuns.innerHTML = '';
   adminSearchResults.innerHTML = '';
-  setEditorVisible(false);
+  adminPracticeList.innerHTML = '';
+  setInnovatorEditorVisible(false);
+  setPracticeEditorVisible(false);
   setStatus(sessionStatus, '');
   setStatus(loginStatus, '');
   setStatus(adminEditStatus, '');
+  setStatus(adminPracticeStatus, '');
 });
 
 runInnovationSyncButton.addEventListener('click', async () => { await runInnovationSync(); });
@@ -344,7 +499,11 @@ adminSearchInput.addEventListener('input', () => {
   filterAdminVendors();
   renderAdminResults();
 });
+editPracticeEls.sixm.addEventListener('input', () => {
+  renderSixMPreview(editPracticeEls.sixm.value);
+});
 adminEditForm.addEventListener('submit', saveInnovatorEdits);
+adminPracticeForm.addEventListener('submit', savePracticeEdits);
 
 (async () => {
   const valid = await verifySession();

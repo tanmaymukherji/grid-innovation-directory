@@ -73,9 +73,17 @@ a{text-decoration:none}
 .admin-editor-empty{padding:1rem;border:1px dashed #bfd0db;border-radius:14px;background:#f7fbfd;color:#5f6c7b;line-height:1.6}
 .admin-editor-fields{display:none;gap:.5rem}
 .admin-editor-fields.active{display:grid}
+.checkbox-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.55rem}
+.checkbox-item{display:flex;align-items:center;gap:.55rem;padding:.65rem .75rem;border:1px solid #d7e2ea;border-radius:12px;background:#fff;color:#314556}
+.checkbox-item input{margin:0}
 .admin-search-card{cursor:pointer}
 .session-panel,.queue-panel{display:none}
 .session-panel.active,.queue-panel.active{display:block}
+.admin-6m-helper{padding:.8rem;border:1px solid #d7e2ea;border-radius:14px;background:#f7fbfd}
+.admin-6m-helper p{margin:0 0 .55rem}
+.admin-6m-list{margin:.25rem 0 0;padding-left:1.1rem;color:#536171}
+.admin-detail-stack{display:grid;gap:1rem}
+.admin-practice-panel{display:grid;gap:.75rem}
 .innovation-detail-hero{display:grid;grid-template-columns:minmax(280px,360px) 1fr;gap:1rem;align-items:start}
 .innovation-detail-summary{display:grid;gap:.8rem}
 .innovation-chip-row{display:flex;flex-wrap:wrap;gap:.45rem}

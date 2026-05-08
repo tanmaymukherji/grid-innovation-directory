@@ -15,11 +15,13 @@ const directoryState = {
 
 const INDIA_CENTER = { lat: 22.9734, lng: 78.6569 };
 const SEARCH_STATE_KEY = 'grid_innovation_search_state_v1';
+const SIX_M_OPTIONS = ['Manpower', 'Method', 'Material', 'Machine', 'Money', 'Market'];
 const searchEls = {
   supplier: document.getElementById('search-supplier'),
   product: document.getElementById('search-product'),
   location: document.getElementById('search-location'),
   tags: document.getElementById('search-tags'),
+  sixm: document.getElementById('search-sixm'),
   keyword: document.getElementById('search-keyword'),
 };
 
@@ -37,6 +39,21 @@ function uniqueSortedValues(values) {
     .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
 }
 
+function getSelectedValues(selectEl) {
+  if (!selectEl) return [];
+  return Array.from(selectEl.querySelectorAll('input[type="checkbox"]:checked'))
+    .map((input) => String(input.value || '').trim())
+    .filter(Boolean);
+}
+
+function setSelectedValues(selectEl, values) {
+  if (!selectEl) return;
+  const wanted = new Set((values || []).map((value) => String(value || '').trim()).filter(Boolean));
+  Array.from(selectEl.querySelectorAll('input[type="checkbox"]')).forEach((input) => {
+    input.checked = wanted.has(input.value);
+  });
+}
+
 function populateSelectOptions(selectEl, values, placeholder) {
   if (!selectEl) return;
   const previousValue = selectEl.value;
@@ -52,6 +69,15 @@ function populateSelectOptions(selectEl, values, placeholder) {
     selectEl.appendChild(option);
   });
   selectEl.value = values.includes(previousValue) ? previousValue : '';
+}
+
+function getEffectiveProductTags(product) {
+  const reviewed = Array.isArray(product?.reviewed_tags) ? product.reviewed_tags.filter(Boolean) : [];
+  return reviewed.length ? reviewed : (Array.isArray(product?.tags) ? product.tags.filter(Boolean) : []);
+}
+
+function getEffectiveProductSixM(product) {
+  return Array.isArray(product?.six_m_categories) ? product.six_m_categories.filter(Boolean) : [];
 }
 
 function buildTownStateLabel(town, state) {
@@ -82,7 +108,7 @@ function collectTagValues() {
   return uniqueSortedValues([
     ...directoryState.vendors.flatMap((vendor) => vendor.tags || []),
     ...directoryState.products.flatMap((product) => [
-      ...(product.tags || []),
+      ...getEffectiveProductTags(product),
       ...(product.product_categories || []),
       ...(product.product_subcategories || []),
     ]),
@@ -110,6 +136,14 @@ function populateFilterOptions() {
     collectTagValues(),
     'All tags'
   );
+  const previousSixM = getSelectedValues(searchEls.sixm);
+  searchEls.sixm.innerHTML = SIX_M_OPTIONS.map((value) => `
+    <label class="checkbox-item">
+      <input type="checkbox" value="${esc(value)}" />
+      <span>${esc(value)}</span>
+    </label>
+  `).join('');
+  setSelectedValues(searchEls.sixm, previousSixM);
 }
 
 function esc(value) {
@@ -123,6 +157,7 @@ function persistSearchState() {
       product: searchEls.product.value,
       location: searchEls.location.value,
       tags: searchEls.tags.value,
+      sixm: getSelectedValues(searchEls.sixm),
       keyword: searchEls.keyword.value,
     },
     currentPage: directoryState.currentPage,
@@ -151,6 +186,7 @@ function applySearchSnapshot(snapshot) {
   searchEls.product.value = String(snapshot.search.product || '');
   searchEls.location.value = String(snapshot.search.location || '');
   searchEls.tags.value = String(snapshot.search.tags || '');
+  setSelectedValues(searchEls.sixm, Array.isArray(snapshot.search.sixm) ? snapshot.search.sixm : []);
   searchEls.keyword.value = String(snapshot.search.keyword || '');
   directoryState.currentPage = Number(snapshot.currentPage || 1);
   directoryState.selectedVendorId = snapshot.selectedVendorId || null;
@@ -169,10 +205,11 @@ function buildVendorIndex(vendor) {
   const practiceDescriptions = (vendor.products || []).map((product) => normalizeText(product.product_description || product.practice_summary || product.practice_details)).join(' ');
   const tags = [
     ...(vendor.tags || []),
-    ...(vendor.products || []).flatMap((product) => product.tags || []),
+    ...(vendor.products || []).flatMap((product) => getEffectiveProductTags(product)),
     ...(vendor.products || []).flatMap((product) => product.product_categories || []),
     ...(vendor.products || []).flatMap((product) => (product.product_specifications || []).flatMap((spec) => [spec?.key, spec?.value])),
   ].map(normalizeText).join(' ');
+  const sixm = uniqueSortedValues((vendor.products || []).flatMap((product) => getEffectiveProductSixM(product))).map(normalizeText);
   const locations = [vendor.location_text, vendor.city, vendor.district, vendor.state, vendor.country, vendor.final_contact_address, ...(vendor.service_locations || [])].map(normalizeText).join(' ');
   const keyword = [vendor.vendor_name, vendor.about_vendor, practiceNames, practiceDescriptions, tags, locations, vendor.search_text].map(normalizeText).join(' ');
   return {
@@ -180,6 +217,7 @@ function buildVendorIndex(vendor) {
     products: practiceNames,
     location: locations,
     tags,
+    sixm,
     keyword,
   };
 }
@@ -218,6 +256,12 @@ function scoreVendor(vendor, filters) {
   if (tagScore === null) return null;
   score += tagScore;
 
+  if (filters.sixmValues.length) {
+    const storySixM = new Set(index.sixm || []);
+    if (!filters.sixmValues.every((value) => storySixM.has(value))) return null;
+    score += filters.sixmValues.length * 18;
+  }
+
   if (filters.keywordTokens.length) {
     if (!tokensMatchAll(index.keyword, filters.keywordTokens)) return null;
     score += filters.keywordTokens.reduce((total, token) => total + (index.supplier.includes(token) ? 18 : 8), 0);
@@ -234,12 +278,14 @@ function getFilters() {
   const product = normalizeText(searchEls.product.value);
   const location = normalizeText(searchEls.location.value);
   const tags = normalizeText(searchEls.tags.value);
+  const sixm = getSelectedValues(searchEls.sixm).map(normalizeText).filter(Boolean);
   const keyword = normalizeText(searchEls.keyword.value);
   return {
     supplierPhrase: supplier,
     productPhrase: product,
     locationPhrase: location,
     tagPhrase: tags,
+    sixmValues: sixm,
     keywordPhrase: keyword,
     supplierTokens: tokenize(supplier),
     productTokens: tokenize(product),
@@ -255,6 +301,7 @@ function hasAnyFilter(filters) {
     filters.productTokens.length ||
     filters.locationTokens.length ||
     filters.tagTokens.length ||
+    filters.sixmValues.length ||
     filters.keywordTokens.length
   );
 }
@@ -531,7 +578,8 @@ async function renderResults() {
     const practicePreview = (vendor.products || []).slice(0, 4).map((product) => product.product_name).filter(Boolean);
     const practiceExtra = Math.max((vendor.products || []).length - practicePreview.length, 0);
     const categoryPreview = uniqueSortedValues((vendor.products || []).flatMap((product) => product.product_categories || [])).slice(0, 4);
-    resultsEl.insertAdjacentHTML('beforeend', `<article class="vendor-result-card" data-vendor-card="${esc(vendor.portal_vendor_id)}"><div class="vendor-result-top"><div><h4>${esc(vendor.vendor_name)}</h4><p>${esc(vendor.location_text || 'Location not listed')}</p></div><span class="admin-badge approved">${esc(String(vendor.products_count || vendor.products?.length || 0))} practices</span></div><p>${esc(vendor.about_vendor || 'No innovator details available.')}</p><p><strong>District / State:</strong> ${esc([vendor.district, vendor.state].filter(Boolean).join(', ') || 'Not listed')}</p><p><strong>Address:</strong> ${esc(vendor.final_contact_address || 'Not listed')}</p><p><strong>Categories:</strong> ${esc(categoryPreview.join(', ') || 'Not listed')}</p><p><strong>Practices:</strong> ${esc(practicePreview.join(', ') || 'No practices listed')}${practiceExtra ? ` +${practiceExtra} more` : ''}</p><div class="btn-group"><a class="btn btn-small" href="./vendor-detail.html?vendor=${encodeURIComponent(vendor.portal_vendor_id)}">View Details</a><a class="btn btn-warning btn-small" href="${esc(vendor.portal_vendor_link || '#')}" target="_blank" rel="noreferrer">Open GRID Source</a></div></article>`);
+    const sixmPreview = uniqueSortedValues((vendor.products || []).flatMap((product) => getEffectiveProductSixM(product))).slice(0, 6);
+    resultsEl.insertAdjacentHTML('beforeend', `<article class="vendor-result-card" data-vendor-card="${esc(vendor.portal_vendor_id)}"><div class="vendor-result-top"><div><h4>${esc(vendor.vendor_name)}</h4><p>${esc(vendor.location_text || 'Location not listed')}</p></div><span class="admin-badge approved">${esc(String(vendor.products_count || vendor.products?.length || 0))} practices</span></div><p>${esc(vendor.about_vendor || 'No innovator details available.')}</p><p><strong>District / State:</strong> ${esc([vendor.district, vendor.state].filter(Boolean).join(', ') || 'Not listed')}</p><p><strong>Address:</strong> ${esc(vendor.final_contact_address || vendor.website_address || 'Not listed')}</p><p><strong>Categories:</strong> ${esc(categoryPreview.join(', ') || 'Not listed')}</p><p><strong>6M:</strong> ${esc(sixmPreview.join(', ') || 'Not classified')}</p><p><strong>Practices:</strong> ${esc(practicePreview.join(', ') || 'No practices listed')}${practiceExtra ? ` +${practiceExtra} more` : ''}</p><div class="btn-group"><a class="btn btn-small" href="./vendor-detail.html?vendor=${encodeURIComponent(vendor.portal_vendor_id)}">View Details</a><a class="btn btn-warning btn-small" href="${esc(vendor.portal_vendor_link || '#')}" target="_blank" rel="noreferrer">Open GRID Source</a></div></article>`);
   });
 
   const selectedVendor = directoryState.selectedVendorId && mapVendors.some((vendor) => vendor.portal_vendor_id === directoryState.selectedVendorId)
@@ -565,7 +613,8 @@ function applyFilters() {
 }
 
 function clearFilters() {
-  Object.values(searchEls).forEach((input) => { input.value = ''; });
+  [searchEls.supplier, searchEls.product, searchEls.location, searchEls.tags, searchEls.keyword].forEach((input) => { if (input) input.value = ''; });
+  setSelectedValues(searchEls.sixm, []);
   directoryState.selectedVendorId = null;
   try { window.sessionStorage.removeItem(SEARCH_STATE_KEY); } catch {}
   applyFilters();
@@ -603,6 +652,7 @@ async function initializeDirectory() {
 document.getElementById('run-search').addEventListener('click', applyFilters);
 document.getElementById('clear-search').addEventListener('click', clearFilters);
 Object.values(searchEls).forEach((input) => {
+  if (!input) return;
   input.addEventListener('keypress', (event) => { if (event.key === 'Enter') applyFilters(); });
   input.addEventListener('input', persistSearchState);
   input.addEventListener('change', persistSearchState);

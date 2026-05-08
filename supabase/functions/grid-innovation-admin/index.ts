@@ -18,6 +18,7 @@ const gridListingUrl = `${gridBaseUrl}/practices`;
 const MAX_PRACTICES_PER_RUN = 40;
 const DETAIL_CONCURRENCY = 6;
 const STALE_RUN_MINUTES = 10;
+const SIX_M_OPTIONS = ["Manpower", "Method", "Material", "Machine", "Money", "Market"] as const;
 const EDITABLE_VENDOR_FIELDS = [
   "vendor_name",
   "portal_contact_name",
@@ -34,6 +35,11 @@ const EDITABLE_VENDOR_FIELDS = [
   "contact_source_url",
   "website_status",
   "contact_notes",
+] as const;
+const EDITABLE_PRODUCT_FIELDS = [
+  "reviewed_tags",
+  "six_m_categories",
+  "admin_notes",
 ] as const;
 
 type ListingItem = {
@@ -114,6 +120,18 @@ function safeUrl(value: string) {
 
 function dedupe(values: string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function sanitizeTextArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return dedupe(value.map((item) => requireString(item)).filter(Boolean));
+}
+
+function sanitizeSixMArray(value: unknown) {
+  const allowed = new Map(SIX_M_OPTIONS.map((item) => [item.toLowerCase(), item]));
+  return sanitizeTextArray(value)
+    .map((item) => allowed.get(item.toLowerCase()) || "")
+    .filter(Boolean);
 }
 
 function cleanText(value: unknown) {
@@ -575,6 +593,32 @@ async function handleUpdateGridInnovator(token: string, portalVendorId: string, 
   return jsonResponse({ ok: true, item: data });
 }
 
+async function handleUpdateGridPractice(token: string, portalProductId: string, updates: Record<string, unknown>) {
+  const supabase = getSupabaseAdmin();
+  const session = await validateSession(token);
+  if (!session) return errorResponse("Invalid admin session.", 401);
+  if (!portalProductId) return errorResponse("Missing practice id.", 400);
+
+  const cleanUpdates: Record<string, unknown> = {};
+  for (const field of EDITABLE_PRODUCT_FIELDS) {
+    if (!(field in updates)) continue;
+    if (field === "reviewed_tags") cleanUpdates[field] = sanitizeTextArray(updates[field]);
+    if (field === "six_m_categories") cleanUpdates[field] = sanitizeSixMArray(updates[field]);
+    if (field === "admin_notes") cleanUpdates[field] = requireString(updates[field]) || null;
+  }
+  if (!Object.keys(cleanUpdates).length) return errorResponse("No valid practice fields were provided for update.", 400);
+  cleanUpdates.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("grid_practices")
+    .update(cleanUpdates)
+    .eq("portal_product_id", portalProductId)
+    .select("*")
+    .single();
+  if (error) return errorResponse(`Practice update failed: ${error.message}`, 500);
+  return jsonResponse({ ok: true, item: data });
+}
+
 async function runGridSync(requestedBy: string) {
   const supabase = getSupabaseAdmin();
   await markStaleRunningSyncs();
@@ -849,6 +893,8 @@ Deno.serve(async (request) => {
       return await handleSyncGridDirectory(token);
     case "updateGridInnovator":
       return await handleUpdateGridInnovator(token, portalVendorId, updates);
+    case "updateGridPractice":
+      return await handleUpdateGridPractice(token, requireString(body.portalProductId), updates);
     case "importGridBatch":
       return await handleImportGridBatch(importToken, requestedBy, vendors, products);
     case "scheduledSync":
