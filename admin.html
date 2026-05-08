@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GRID Directory Admin</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://js.puter.com/v2/"></script>
   <script src="./config.js"></script>
   <link rel="stylesheet" href="./styles.css" />
 </head>
@@ -96,6 +97,10 @@
               <div id="adminPracticeFields" class="admin-editor-fields">
                 <div class="form-group"><label for="editProductName">Practice Name</label><input id="editProductName" type="text" readonly /></div>
                 <div class="form-group"><label for="editProductSourceTags">Source Tags</label><textarea id="editProductSourceTags" rows="3" readonly></textarea></div>
+                <div class="form-group"><label for="editProductAiTags">AI Suggested Tags</label><textarea id="editProductAiTags" rows="3" readonly></textarea></div>
+                <div class="form-group"><label for="editProductAiSixM">AI Suggested 6M</label><textarea id="editProductAiSixM" rows="2" readonly></textarea></div>
+                <div class="form-group"><label for="editProductAiModel">AI Model</label><input id="editProductAiModel" type="text" readonly /></div>
+                <div class="form-group"><label for="editProductAiClassifiedAt">AI Classified At</label><input id="editProductAiClassifiedAt" type="text" readonly /></div>
                 <div class="form-group"><label for="editProductReviewedTags">Reviewed Tags</label><textarea id="editProductReviewedTags" rows="3" placeholder="Comma separated tags"></textarea></div>
                 <div class="form-group">
                   <label for="editProductSixM">6M Classification</label>
@@ -112,6 +117,34 @@
                       <li><strong>Money:</strong> Financial support</li>
                     </ul>
                   </div>
+                </div>
+                <div class="admin-ai-helper">
+                  <div class="admin-ai-helper-header">
+                    <div>
+                      <h4>Puter AI Assist</h4>
+                      <p>Reclassify the selected practice in the browser, then review and save the updated tags or 6M values.</p>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="puterModelSelect">Puter Model</label>
+                    <select id="puterModelSelect">
+                      <option value="">Default Puter model</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="puterUpdateMode">Update Mode</label>
+                    <select id="puterUpdateMode">
+                      <option value="both">Tags and 6M</option>
+                      <option value="tags">Tags only</option>
+                      <option value="sixm">6M only</option>
+                    </select>
+                  </div>
+                  <div class="btn-group">
+                    <button class="btn btn-small" type="button" id="refreshPuterModels">Refresh Puter Models</button>
+                    <button class="btn btn-warning btn-small" type="button" id="puterReclassifySixM">AI Reclassify 6M</button>
+                    <button class="btn btn-small" type="button" id="puterSuggestPracticeMetadata">AI Suggest Tags + 6M</button>
+                  </div>
+                  <p class="admin-helper" id="puterStatus">Select a practice to use Puter AI assist.</p>
                 </div>
                 <div class="form-group"><label for="editProductAdminNotes">Practice Admin Notes</label><textarea id="editProductAdminNotes" rows="4"></textarea></div>
                 <div class="form-group"><label for="editProductLink">Source Page</label><input id="editProductLink" type="url" readonly /></div>

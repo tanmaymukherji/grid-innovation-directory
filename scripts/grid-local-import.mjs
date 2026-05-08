@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify } from "node:util";
+import { buildGridAiContext, enrichGridPractice, hasAiProviderConfigured } from "./grid-ai-helpers.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -12,6 +14,8 @@ const IMPORT_TOKEN = process.env.GRID_LOCAL_IMPORT_TOKEN || "";
 const START_PAGE = Number(process.env.GRID_START_PAGE || 1);
 const END_PAGE = Number(process.env.GRID_END_PAGE || 52);
 const CHUNK_SIZE = Number(process.env.GRID_IMPORT_CHUNK_SIZE || 20);
+const FORCE_AI_RECLASSIFY = process.env.GRID_FORCE_AI_RECLASSIFY === "1";
+const ENABLE_AI_ENRICHMENT = process.env.GRID_ENABLE_AI_ENRICHMENT !== "0";
 
 if (!SUPABASE_SERVICE_ROLE_KEY && !IMPORT_TOKEN) {
   console.error("Missing GRID_SUPABASE_SERVICE_ROLE_KEY or GRID_LOCAL_IMPORT_TOKEN environment variable.");
@@ -72,6 +76,10 @@ function toUsableCoordinate(value) {
 function safeUrl(value = "") {
   if (!value) return "";
   return /^https?:\/\//i.test(value) ? value : new URL(value, BASE_URL).toString();
+}
+
+function hashText(value = "") {
+  return createHash("sha256").update(String(value || "")).digest("hex");
 }
 
 async function fetchHtml(url) {
@@ -295,6 +303,99 @@ function buildRows(parsed) {
   return { vendorRow, productRow };
 }
 
+function buildAiSourceHash(parsed, productRow) {
+  return hashText(JSON.stringify({
+    practiceId: parsed.practiceId,
+    title: parsed.title,
+    innovatorName: parsed.innovatorName,
+    summary: parsed.summary,
+    problemStatement: parsed.problemStatement,
+    location: parsed.location,
+    categories: parsed.categories,
+    practiceDetails: parsed.practiceDetails,
+    innovatorDetails: parsed.innovatorDetails,
+    sourceReference: parsed.referenceText,
+    rawProduct: productRow.raw_product,
+  }));
+}
+
+async function fetchAllRows(table, select, orderColumn) {
+  const rows = [];
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const url = `${SUPABASE_URL}/rest/v1/${table}?select=${encodeURIComponent(select)}&order=${encodeURIComponent(orderColumn)}&offset=${from}&limit=${pageSize}`;
+    const response = await fetch(url, {
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`${table} preload failed: ${text || response.status}`);
+    }
+    const batch = await response.json();
+    rows.push(...(Array.isArray(batch) ? batch : []));
+    if (!Array.isArray(batch) || batch.length < pageSize) break;
+    from += pageSize;
+  }
+  return rows;
+}
+
+async function loadExistingAiCache() {
+  if (!SUPABASE_SERVICE_ROLE_KEY) return new Map();
+  const rows = await fetchAllRows(
+    "grid_practices",
+    "portal_product_id,ai_model,ai_summary,ai_classified_at,ai_source_hash",
+    "product_name.asc"
+  );
+  return new Map(rows.map((row) => [row.portal_product_id, row]));
+}
+
+async function classifyRows(rows, existingAiCache) {
+  const aiEnabled = ENABLE_AI_ENRICHMENT && hasAiProviderConfigured();
+  if (ENABLE_AI_ENRICHMENT && !hasAiProviderConfigured()) {
+    console.warn("GRID AI enrichment is enabled but no AI provider keys were found. Continuing without AI classification.");
+  }
+
+  for (const item of rows) {
+    const aiSourceHash = buildAiSourceHash(item.parsed, item.productRow);
+    const existing = existingAiCache.get(item.productRow.portal_product_id);
+    item.productRow.ai_source_hash = aiSourceHash;
+
+    if (!aiEnabled) continue;
+    if (!FORCE_AI_RECLASSIFY && existing?.ai_source_hash && existing.ai_source_hash === aiSourceHash && existing.ai_summary) {
+      item.productRow.ai_model = existing.ai_model || null;
+      item.productRow.ai_summary = existing.ai_summary || {};
+      item.productRow.ai_classified_at = existing.ai_classified_at || null;
+      continue;
+    }
+
+    try {
+      console.log(`AI classify: ${item.productRow.product_name}`);
+      const { aiModel, aiSummary } = await enrichGridPractice(buildGridAiContext(item.productRow));
+      item.productRow.ai_model = aiModel;
+      item.productRow.ai_summary = aiSummary;
+      item.productRow.ai_classified_at = new Date().toISOString();
+      item.productRow.search_text = dedupe([
+        item.productRow.search_text,
+        aiSummary.summary_of_practice,
+        ...(aiSummary.tags || []),
+        ...(aiSummary.six_m_categories || []),
+        ...(aiSummary.process_steps || []),
+      ]).join(" ");
+    } catch (error) {
+      console.warn(`AI classification failed for ${item.productRow.portal_product_id}: ${error.message}`);
+      if (existing?.ai_summary) {
+        item.productRow.ai_model = existing.ai_model || null;
+        item.productRow.ai_summary = existing.ai_summary || {};
+        item.productRow.ai_classified_at = existing.ai_classified_at || null;
+      }
+    }
+  }
+}
+
 async function upsertRows(table, onConflict, rows) {
   if (!rows.length) return;
   const url = `${SUPABASE_URL}/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`;
@@ -357,6 +458,7 @@ async function postBatch(vendors, products, pageStart, pageEnd) {
 }
 
 async function main() {
+  const existingAiCache = await loadExistingAiCache();
   const listings = [];
   for (let page = START_PAGE; page <= END_PAGE; page += 1) {
     console.log(`Listing page ${page}/${END_PAGE}`);
@@ -379,7 +481,11 @@ async function main() {
     }
   }
 
-  const rows = parsed.map(buildRows);
+  const rows = parsed.map((item) => {
+    const built = buildRows(item);
+    return { parsed: item, ...built };
+  });
+  await classifyRows(rows, existingAiCache);
   for (let index = 0; index < rows.length; index += CHUNK_SIZE) {
     const chunk = rows.slice(index, index + CHUNK_SIZE);
     const vendorMap = new Map();

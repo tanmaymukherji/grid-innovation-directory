@@ -82,6 +82,9 @@ a{text-decoration:none}
 .admin-6m-helper{padding:.8rem;border:1px solid #d7e2ea;border-radius:14px;background:#f7fbfd}
 .admin-6m-helper p{margin:0 0 .55rem}
 .admin-6m-list{margin:.25rem 0 0;padding-left:1.1rem;color:#536171}
+.admin-ai-helper{display:grid;gap:.75rem;padding:1rem;border:1px solid #d7e2ea;border-radius:16px;background:#f8fbfe}
+.admin-ai-helper-header h4{margin:0 0 .2rem}
+.admin-ai-helper-header p{margin:0;color:#536171;line-height:1.5}
 .admin-detail-stack{display:grid;gap:1rem}
 .admin-practice-panel{display:grid;gap:.75rem}
 .innovation-detail-hero{display:grid;grid-template-columns:minmax(280px,360px) 1fr;gap:1rem;align-items:start}

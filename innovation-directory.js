@@ -73,11 +73,14 @@ function populateSelectOptions(selectEl, values, placeholder) {
 
 function getEffectiveProductTags(product) {
   const reviewed = Array.isArray(product?.reviewed_tags) ? product.reviewed_tags.filter(Boolean) : [];
-  return reviewed.length ? reviewed : (Array.isArray(product?.tags) ? product.tags.filter(Boolean) : []);
+  const aiTags = Array.isArray(product?.ai_summary?.tags) ? product.ai_summary.tags.filter(Boolean) : [];
+  return reviewed.length ? reviewed : (aiTags.length ? aiTags : (Array.isArray(product?.tags) ? product.tags.filter(Boolean) : []));
 }
 
 function getEffectiveProductSixM(product) {
-  return Array.isArray(product?.six_m_categories) ? product.six_m_categories.filter(Boolean) : [];
+  const reviewed = Array.isArray(product?.six_m_categories) ? product.six_m_categories.filter(Boolean) : [];
+  const aiSixM = Array.isArray(product?.ai_summary?.six_m_categories) ? product.ai_summary.six_m_categories.filter(Boolean) : [];
+  return reviewed.length ? reviewed : aiSixM;
 }
 
 function buildTownStateLabel(town, state) {
@@ -202,7 +205,7 @@ function tokenize(value) {
 
 function buildVendorIndex(vendor) {
   const practiceNames = (vendor.products || []).map((product) => normalizeText(product.product_name)).join(' ');
-  const practiceDescriptions = (vendor.products || []).map((product) => normalizeText(product.product_description || product.practice_summary || product.practice_details)).join(' ');
+  const practiceDescriptions = (vendor.products || []).map((product) => normalizeText(product.product_description || product.practice_summary || product.ai_summary?.summary_of_practice || product.practice_details)).join(' ');
   const tags = [
     ...(vendor.tags || []),
     ...(vendor.products || []).flatMap((product) => getEffectiveProductTags(product)),

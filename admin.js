@@ -23,6 +23,12 @@ const adminPracticeStatus = document.getElementById('adminPracticeStatus');
 const saveInnovatorButton = document.getElementById('saveInnovatorButton');
 const savePracticeButton = document.getElementById('savePracticeButton');
 const productSixMPreview = document.getElementById('productSixMPreview');
+const puterModelSelect = document.getElementById('puterModelSelect');
+const puterUpdateModeSelect = document.getElementById('puterUpdateMode');
+const refreshPuterModelsButton = document.getElementById('refreshPuterModels');
+const puterReclassifySixMButton = document.getElementById('puterReclassifySixM');
+const puterSuggestPracticeMetadataButton = document.getElementById('puterSuggestPracticeMetadata');
+const puterStatus = document.getElementById('puterStatus');
 
 const ADMIN_SESSION_KEY = 'grid-innovation-admin-session';
 const SIX_M_OPTIONS = ['Manpower', 'Method', 'Material', 'Machine', 'Money', 'Market'];
@@ -32,6 +38,8 @@ const adminState = {
   filteredVendors: [],
   selectedVendorId: '',
   selectedProductId: '',
+  puterModelsLoaded: false,
+  puterModels: [],
 };
 
 const editEls = {
@@ -58,6 +66,10 @@ const editPracticeEls = {
   productId: document.getElementById('editProductId'),
   productName: document.getElementById('editProductName'),
   sourceTags: document.getElementById('editProductSourceTags'),
+  aiTags: document.getElementById('editProductAiTags'),
+  aiSixm: document.getElementById('editProductAiSixM'),
+  aiModel: document.getElementById('editProductAiModel'),
+  aiClassifiedAt: document.getElementById('editProductAiClassifiedAt'),
   reviewedTags: document.getElementById('editProductReviewedTags'),
   sixm: document.getElementById('editProductSixM'),
   adminNotes: document.getElementById('editProductAdminNotes'),
@@ -95,6 +107,85 @@ function renderSixMPreview(value) {
   productSixMPreview.innerHTML = items.length
     ? items.map((item) => `<span class="innovation-chip">${escapeHtml(item)}</span>`).join('')
     : '<span class="innovation-chip innovation-chip-muted">No valid 6M categories selected</span>';
+}
+
+function setPuterStatus(message, isError = false) {
+  if (!puterStatus) return;
+  setStatus(puterStatus, message, isError);
+}
+
+function stripCodeFences(value) {
+  return String(value || '').replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+}
+
+function parseJsonObject(text) {
+  const cleaned = stripCodeFences(text);
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('AI response did not contain valid JSON.');
+    return JSON.parse(match[0]);
+  }
+}
+
+function parseJsonObjectOrNull(text) {
+  try {
+    return parseJsonObject(text);
+  } catch {
+    return null;
+  }
+}
+
+function extractPuterText(response) {
+  if (typeof response === 'string') return response.trim();
+  const candidates = [
+    response?.message?.content,
+    response?.content,
+    response?.text,
+    response?.result,
+    response?.message,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+    if (Array.isArray(candidate)) {
+      const joined = candidate
+        .map((item) => {
+          if (typeof item === 'string') return item;
+          if (typeof item?.text === 'string') return item.text;
+          if (typeof item?.content === 'string') return item.content;
+          return '';
+        })
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+      if (joined) return joined;
+    }
+    if (candidate && typeof candidate === 'object') {
+      const nested = String(candidate.text || candidate.content || candidate.message || '').trim();
+      if (nested) return nested;
+    }
+  }
+  return JSON.stringify(response || {});
+}
+
+function normalizePuterModelEntries(items) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => {
+      if (typeof item === 'string') return { id: item, name: item };
+      const id = String(item?.id || item?.model || item?.name || '').trim();
+      const name = String(item?.name || item?.label || item?.id || id).trim();
+      return id ? { id, name } : null;
+    })
+    .filter(Boolean);
+}
+
+function getChosenPuterModel() {
+  return String(puterModelSelect?.value || '').trim() || null;
+}
+
+function getPuterUpdateMode() {
+  return String(puterUpdateModeSelect?.value || 'both').trim();
 }
 
 function getStoredToken() {
@@ -138,15 +229,27 @@ function getPracticeRecordsForVendor(vendorId) {
 
 function getEffectiveProductTags(product) {
   const reviewed = Array.isArray(product?.reviewed_tags) ? product.reviewed_tags.filter(Boolean) : [];
-  return reviewed.length ? reviewed : (Array.isArray(product?.tags) ? product.tags.filter(Boolean) : []);
+  const aiTags = Array.isArray(product?.ai_summary?.tags) ? product.ai_summary.tags.filter(Boolean) : [];
+  return reviewed.length ? reviewed : (aiTags.length ? aiTags : (Array.isArray(product?.tags) ? product.tags.filter(Boolean) : []));
+}
+
+function getEffectiveProductSixM(product) {
+  const reviewed = Array.isArray(product?.six_m_categories) ? product.six_m_categories.filter(Boolean) : [];
+  const aiSixM = Array.isArray(product?.ai_summary?.six_m_categories) ? product.ai_summary.six_m_categories.filter(Boolean) : [];
+  return reviewed.length ? reviewed : aiSixM;
+}
+
+function getSelectedPractice() {
+  return adminState.products.find((item) => item.portal_product_id === adminState.selectedProductId) || null;
 }
 
 function buildVendorSearchText(vendor) {
   const linkedProducts = getPracticeRecordsForVendor(vendor.portal_vendor_id);
   const practiceNames = linkedProducts.map((product) => product.product_name).join(' ');
   const practiceTags = linkedProducts.flatMap((product) => getEffectiveProductTags(product)).join(' ');
-  const practiceSixM = linkedProducts.flatMap((product) => product.six_m_categories || []).join(' ');
+  const practiceSixM = linkedProducts.flatMap((product) => getEffectiveProductSixM(product)).join(' ');
   const practiceNotes = linkedProducts.map((product) => product.admin_notes || '').join(' ');
+  const aiSummaries = linkedProducts.map((product) => product.ai_summary?.summary_of_practice || '').join(' ');
   return [
     vendor.vendor_name,
     vendor.portal_contact_name,
@@ -164,6 +267,7 @@ function buildVendorSearchText(vendor) {
     practiceTags,
     practiceSixM,
     practiceNotes,
+    aiSummaries,
     (vendor.tags || []).join(' '),
   ].join(' ').toLowerCase();
 }
@@ -241,7 +345,7 @@ function renderPracticeList(vendorId) {
     const card = document.createElement('article');
     card.className = `admin-card admin-search-card${product.portal_product_id === adminState.selectedProductId ? ' active' : ''}`;
     const tags = getEffectiveProductTags(product).slice(0, 6).join(', ') || 'No tags reviewed';
-    const sixm = (product.six_m_categories || []).join(', ') || 'No 6M set';
+    const sixm = getEffectiveProductSixM(product).join(', ') || 'No 6M set';
     card.innerHTML = `<div class="admin-card-header"><h4>${escapeHtml(product.product_name || 'Untitled practice')}</h4><span class="admin-badge approved">${escapeHtml((product.product_categories || []).join(', ') || 'GRID Practice')}</span></div><p><strong>Tags:</strong> ${escapeHtml(tags)}</p><p><strong>6M:</strong> ${escapeHtml(sixm)}</p><small>${escapeHtml(product.practice_summary || product.product_description || 'No summary saved')}</small>`;
     card.addEventListener('click', () => selectProduct(product.portal_product_id));
     adminPracticeList.appendChild(card);
@@ -252,12 +356,84 @@ function fillPracticeEditor(product) {
   editPracticeEls.productId.value = product.portal_product_id || '';
   editPracticeEls.productName.value = product.product_name || '';
   editPracticeEls.sourceTags.value = (product.tags || []).join(', ');
+  editPracticeEls.aiTags.value = ((product.ai_summary?.tags || []).filter(Boolean)).join(', ');
+  editPracticeEls.aiSixm.value = ((product.ai_summary?.six_m_categories || []).filter(Boolean)).join(', ');
+  editPracticeEls.aiModel.value = product.ai_model || '';
+  editPracticeEls.aiClassifiedAt.value = product.ai_classified_at ? formatDate(product.ai_classified_at) : '';
   editPracticeEls.reviewedTags.value = (product.reviewed_tags || []).join(', ');
   editPracticeEls.sixm.value = (product.six_m_categories || []).join(', ');
   editPracticeEls.adminNotes.value = product.admin_notes || '';
   editPracticeEls.productLink.value = product.product_link || '';
   renderSixMPreview(editPracticeEls.sixm.value);
   setPracticeEditorVisible(true);
+  setPuterStatus('Puter AI assist is ready for this practice.');
+}
+
+function buildPuterPracticeContext(product) {
+  return {
+    portal_product_id: product.portal_product_id,
+    product_name: product.product_name || null,
+    vendor_name: product.vendor_name || null,
+    product_location_text: product.product_location_text || null,
+    product_categories: product.product_categories || [],
+    source_tags: product.tags || [],
+    reviewed_tags: product.reviewed_tags || [],
+    current_six_m_categories: product.six_m_categories || [],
+    ai_summary: product.ai_summary || null,
+    practice_summary: product.practice_summary || product.product_description || null,
+    innovator_details: product.innovator_details || null,
+    practice_details: product.practice_details || null,
+    source_reference: product.source_reference || null,
+    raw_product: product.raw_product || null,
+  };
+}
+
+async function ensurePuterModelsLoaded(forceRefresh = false) {
+  if (!window.puter?.ai) {
+    throw new Error('Puter AI is not available on this page.');
+  }
+  if (adminState.puterModelsLoaded && !forceRefresh) return adminState.puterModels;
+  setPuterStatus('Loading Puter models...');
+  const result = await window.puter.ai.listModels();
+  const models = normalizePuterModelEntries(result);
+  adminState.puterModels = models;
+  adminState.puterModelsLoaded = true;
+  if (puterModelSelect) {
+    const previous = getChosenPuterModel();
+    puterModelSelect.innerHTML = '<option value="">Default Puter model</option>';
+    models.slice(0, 200).forEach((model) => {
+      const option = document.createElement('option');
+      option.value = model.id;
+      option.textContent = model.name;
+      puterModelSelect.appendChild(option);
+    });
+    if (previous && models.some((model) => model.id === previous)) {
+      puterModelSelect.value = previous;
+    }
+  }
+  setPuterStatus(models.length ? `Loaded ${models.length} Puter model options.` : 'No Puter models were returned.');
+  return models;
+}
+
+async function runPuterChat(prompt) {
+  await ensurePuterModelsLoaded(false);
+  const model = getChosenPuterModel();
+  const options = model ? { model } : {};
+  const response = await window.puter.ai.chat(prompt, options);
+  return extractPuterText(response);
+}
+
+function applyPuterPracticeMetadata(payload, updateMode) {
+  if ((updateMode === 'both' || updateMode === 'tags') && Array.isArray(payload.reviewed_tags)) {
+    editPracticeEls.reviewedTags.value = parseCommaList(payload.reviewed_tags.join(', ')).join(', ');
+  }
+  if ((updateMode === 'both' || updateMode === 'sixm') && Array.isArray(payload.six_m_categories)) {
+    editPracticeEls.sixm.value = normalizeSixMValues((payload.six_m_categories || []).join(', ')).join(', ');
+    renderSixMPreview(editPracticeEls.sixm.value);
+  }
+  if (payload.admin_notes && !String(editPracticeEls.adminNotes.value || '').trim()) {
+    editPracticeEls.adminNotes.value = String(payload.admin_notes).trim();
+  }
 }
 
 function selectProduct(productId) {
@@ -448,6 +624,89 @@ async function savePracticeEdits(event) {
   }
 }
 
+async function reclassifyPracticeWithPuter() {
+  const product = getSelectedPractice();
+  if (!product) {
+    setPuterStatus('Select a practice record first.', true);
+    return;
+  }
+  puterReclassifySixMButton.disabled = true;
+  setPuterStatus('Asking Puter to reclassify the 6M tags...');
+  try {
+    const prompt = [
+      'Reclassify this GRID practice for an admin-reviewed innovation directory.',
+      'Return strict JSON only with this schema:',
+      '{"reviewed_tags":string[],"six_m_categories":string[],"admin_notes":string|null}',
+      'Rules:',
+      '- six_m_categories must only use: Manpower, Method, Material, Machine, Money, Market.',
+      '- Apply 6M strictly using these meanings:',
+      '- Manpower = trainings or capacity-building support.',
+      '- Method = consulting, mentoring, technology transfer, processes, videos, SOPs, manuals, or blogs.',
+      '- Market = product/material purchase, market support, or market reports.',
+      '- Material = raw material supply.',
+      '- Machine = machinery or plant setup.',
+      '- Money = financial support.',
+      '- Do not assign a 6M category unless the source clearly supports it.',
+      '- reviewed_tags should be short, admin-friendly, and useful in search.',
+      `- Apply update mode: ${getPuterUpdateMode()}. If mode is sixm, reviewed_tags may stay unchanged.`,
+      `Current record:\n${JSON.stringify(buildPuterPracticeContext(product))}`,
+    ].join('\n');
+    const text = await runPuterChat(prompt);
+    const payload = parseJsonObjectOrNull(text);
+    if (!payload) throw new Error('Puter returned free text instead of structured JSON. Try another Puter model.');
+    applyPuterPracticeMetadata(payload, 'sixm');
+    setPuterStatus('AI 6M reclassification applied. Review and save when ready.');
+  } catch (error) {
+    setPuterStatus(error.message || 'Puter 6M reclassification failed.', true);
+  } finally {
+    puterReclassifySixMButton.disabled = false;
+  }
+}
+
+async function suggestPracticeMetadataWithPuter() {
+  const product = getSelectedPractice();
+  if (!product) {
+    setPuterStatus('Select a practice record first.', true);
+    return;
+  }
+  puterSuggestPracticeMetadataButton.disabled = true;
+  setPuterStatus('Asking Puter to suggest tags and 6M metadata...');
+  try {
+    const updateMode = getPuterUpdateMode();
+    const prompt = [
+      'Improve this GRID practice record for an admin editor.',
+      'Return strict JSON only with this schema:',
+      '{"reviewed_tags":string[],"six_m_categories":string[],"admin_notes":string|null}',
+      'Rules:',
+      '- six_m_categories must only use: Manpower, Method, Material, Machine, Money, Market.',
+      '- Apply 6M strictly using these meanings:',
+      '- Manpower = trainings or capacity-building support.',
+      '- Method = consulting, mentoring, technology transfer, processes, videos, SOPs, manuals, or blogs.',
+      '- Market = product/material purchase, market support, or market reports.',
+      '- Material = raw material supply.',
+      '- Machine = machinery or plant setup.',
+      '- Money = financial support.',
+      '- reviewed_tags should be short, admin-friendly, and useful in search.',
+      `- Apply update mode: ${updateMode}. If mode is tags, still return six_m_categories only if clearly inferable. If mode is sixm, still return reviewed_tags if clearly helpful.`,
+      `Current record:\n${JSON.stringify(buildPuterPracticeContext(product))}`,
+    ].join('\n');
+    const text = await runPuterChat(prompt);
+    const payload = parseJsonObjectOrNull(text);
+    if (!payload) throw new Error('Puter returned free text instead of structured JSON. Try another Puter model.');
+    applyPuterPracticeMetadata(payload, updateMode);
+    const statusMap = {
+      both: 'AI tag and 6M suggestions applied. Review and save when ready.',
+      tags: 'AI tag suggestions applied. Review and save when ready.',
+      sixm: 'AI 6M suggestions applied. Review and save when ready.',
+    };
+    setPuterStatus(statusMap[updateMode] || 'AI suggestions applied. Review and save when ready.');
+  } catch (error) {
+    setPuterStatus(error.message || 'Puter practice metadata assist failed.', true);
+  } finally {
+    puterSuggestPracticeMetadataButton.disabled = false;
+  }
+}
+
 loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const password = String(document.getElementById('adminPassword').value || '').trim();
@@ -492,6 +751,7 @@ signOutButton.addEventListener('click', async () => {
   setStatus(loginStatus, '');
   setStatus(adminEditStatus, '');
   setStatus(adminPracticeStatus, '');
+  setPuterStatus('');
 });
 
 runInnovationSyncButton.addEventListener('click', async () => { await runInnovationSync(); });
@@ -502,10 +762,27 @@ adminSearchInput.addEventListener('input', () => {
 editPracticeEls.sixm.addEventListener('input', () => {
   renderSixMPreview(editPracticeEls.sixm.value);
 });
+refreshPuterModelsButton?.addEventListener('click', async () => {
+  refreshPuterModelsButton.disabled = true;
+  try {
+    await ensurePuterModelsLoaded(true);
+  } catch (error) {
+    setPuterStatus(error.message || 'Puter models could not be loaded.', true);
+  } finally {
+    refreshPuterModelsButton.disabled = false;
+  }
+});
+puterReclassifySixMButton?.addEventListener('click', reclassifyPracticeWithPuter);
+puterSuggestPracticeMetadataButton?.addEventListener('click', suggestPracticeMetadataWithPuter);
 adminEditForm.addEventListener('submit', saveInnovatorEdits);
 adminPracticeForm.addEventListener('submit', savePracticeEdits);
 
 (async () => {
   const valid = await verifySession();
   if (valid) await Promise.all([loadInnovationSyncRuns(), loadAdminDirectory()]);
+  if (window.puter?.ai) {
+    setPuterStatus('Puter AI assist is available. Select a practice, then load models or use the default model.');
+  } else {
+    setPuterStatus('Puter AI did not load on this page.', true);
+  }
 })();
