@@ -1,0 +1,59 @@
+name: Sync GRID Directory
+
+on:
+  workflow_dispatch:
+    inputs:
+      requested_by:
+        description: Who requested this sync
+        required: false
+        type: string
+        default: admin
+      sync_mode:
+        description: Which GRID job to run
+        required: false
+        type: choice
+        options:
+          - refresh
+          - ai-reprocess
+        default: refresh
+
+concurrency:
+  group: grid-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run GRID website refresh
+        if: ${{ inputs.sync_mode == 'refresh' }}
+        env:
+          GRID_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          GRID_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GRID_LOCAL_IMPORT_TOKEN: ${{ secrets.GRID_LOCAL_IMPORT_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GRID_ENABLE_AI_ENRICHMENT: 1
+          GRID_IMPORT_CHUNK_SIZE: 20
+        run: node scripts/grid-local-import.mjs
+
+      - name: Reprocess GRID AI classification
+        if: ${{ inputs.sync_mode == 'ai-reprocess' }}
+        env:
+          GRID_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          GRID_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GRID_REPROCESS_LIMIT: 300
+        run: node scripts/grid-ai-reprocess.mjs

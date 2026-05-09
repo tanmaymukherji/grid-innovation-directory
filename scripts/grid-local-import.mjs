@@ -1,9 +1,5 @@
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { promisify } from "node:util";
 import { buildGridAiContext, enrichGridPractice, hasAiProviderConfigured } from "./grid-ai-helpers.mjs";
-
-const execFileAsync = promisify(execFile);
 
 const BASE_URL = "https://grid.gian.org.in";
 const SUPABASE_URL = process.env.GRID_SUPABASE_URL || "https://zphabezqbboaexmmhcic.supabase.co";
@@ -16,6 +12,7 @@ const END_PAGE = Number(process.env.GRID_END_PAGE || 52);
 const CHUNK_SIZE = Number(process.env.GRID_IMPORT_CHUNK_SIZE || 20);
 const FORCE_AI_RECLASSIFY = process.env.GRID_FORCE_AI_RECLASSIFY === "1";
 const ENABLE_AI_ENRICHMENT = process.env.GRID_ENABLE_AI_ENRICHMENT !== "0";
+const REQUESTED_BY = process.env.GRID_REQUESTED_BY || process.env.GITHUB_ACTOR || "local-import";
 
 if (!SUPABASE_SERVICE_ROLE_KEY && !IMPORT_TOKEN) {
   console.error("Missing GRID_SUPABASE_SERVICE_ROLE_KEY or GRID_LOCAL_IMPORT_TOKEN environment variable.");
@@ -83,8 +80,17 @@ function hashText(value = "") {
 }
 
 async function fetchHtml(url) {
-  const { stdout } = await execFileAsync("curl.exe", ["-sS", url], { maxBuffer: 25 * 1024 * 1024 });
-  return stdout;
+  const response = await fetch(url, {
+    headers: {
+      Accept: "text/html,application/xhtml+xml",
+      "User-Agent": "GRID Innovation Directory Sync/2.0",
+    },
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(text || `GRID page fetch failed (${response.status})`);
+  }
+  return await response.text();
 }
 
 function parseListingPage(html) {
@@ -425,6 +431,51 @@ async function upsertRows(table, onConflict, rows) {
   }
 }
 
+async function createSyncRun() {
+  if (!SUPABASE_SERVICE_ROLE_KEY) return null;
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/grid_sync_runs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify([{
+      status: "running",
+      requested_by: REQUESTED_BY,
+      started_at: new Date().toISOString(),
+    }]),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(text || `grid_sync_runs create failed (${response.status})`);
+  }
+  const data = await response.json();
+  return Array.isArray(data) && data[0]?.id ? String(data[0].id) : null;
+}
+
+async function updateSyncRun(runId, updates) {
+  if (!SUPABASE_SERVICE_ROLE_KEY || !runId) return;
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/grid_sync_runs?id=eq.${encodeURIComponent(runId)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({
+      ...updates,
+      updated_at: new Date().toISOString(),
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(text || `grid_sync_runs update failed (${response.status})`);
+  }
+}
+
 async function postBatch(vendors, products, pageStart, pageEnd) {
   if (SUPABASE_SERVICE_ROLE_KEY) {
     await upsertRows("grid_innovators", "portal_vendor_id", vendors);
@@ -458,50 +509,72 @@ async function postBatch(vendors, products, pageStart, pageEnd) {
 }
 
 async function main() {
+  const runId = await createSyncRun();
   const existingAiCache = await loadExistingAiCache();
-  const listings = [];
-  for (let page = START_PAGE; page <= END_PAGE; page += 1) {
-    console.log(`Listing page ${page}/${END_PAGE}`);
-    const html = await fetchHtml(page === 1 ? `${BASE_URL}/practices` : `${BASE_URL}/practices?page=${page}`);
-    listings.push(...parseListingPage(html));
-  }
-
-  const uniqueListings = dedupe(listings.map((item) => item.detailUrl)).map((url) => listings.find((item) => item.detailUrl === url));
-  console.log(`Found ${uniqueListings.length} listing entries`);
-
-  const parsed = [];
-  for (let index = 0; index < uniqueListings.length; index += 1) {
-    const item = uniqueListings[index];
-    try {
-      console.log(`Detail ${index + 1}/${uniqueListings.length}: ${item.title}`);
-      const html = await fetchHtml(item.detailUrl);
-      parsed.push(parseDetailPage(item, html));
-    } catch (error) {
-      console.warn(`Skipping ${item.detailUrl}: ${error.message}`);
+  try {
+    const listings = [];
+    for (let page = START_PAGE; page <= END_PAGE; page += 1) {
+      console.log(`Listing page ${page}/${END_PAGE}`);
+      const html = await fetchHtml(page === 1 ? `${BASE_URL}/practices` : `${BASE_URL}/practices?page=${page}`);
+      listings.push(...parseListingPage(html));
     }
-  }
 
-  const rows = parsed.map((item) => {
-    const built = buildRows(item);
-    return { parsed: item, ...built };
-  });
-  await classifyRows(rows, existingAiCache);
-  for (let index = 0; index < rows.length; index += CHUNK_SIZE) {
-    const chunk = rows.slice(index, index + CHUNK_SIZE);
-    const vendorMap = new Map();
-    for (const item of chunk) {
-      vendorMap.set(item.vendorRow.portal_vendor_id, item.vendorRow);
+    const uniqueListings = dedupe(listings.map((item) => item.detailUrl)).map((url) => listings.find((item) => item.detailUrl === url));
+    console.log(`Found ${uniqueListings.length} listing entries`);
+
+    const parsed = [];
+    for (let index = 0; index < uniqueListings.length; index += 1) {
+      const item = uniqueListings[index];
+      try {
+        console.log(`Detail ${index + 1}/${uniqueListings.length}: ${item.title}`);
+        const html = await fetchHtml(item.detailUrl);
+        parsed.push(parseDetailPage(item, html));
+      } catch (error) {
+        console.warn(`Skipping ${item.detailUrl}: ${error.message}`);
+      }
     }
-    const vendors = [...vendorMap.values()];
-    const products = chunk.map((item) => item.productRow);
-    const start = index + 1;
-    const end = index + chunk.length;
-    console.log(`Importing chunk ${start}-${end} of ${rows.length}`);
-    const result = await postBatch(vendors, products, start, end);
-    console.log(`Imported ${result.vendorCount} innovators and ${result.productCount} practices`);
-  }
 
-  console.log(`Done. Parsed ${parsed.length} practices.`);
+    const rows = parsed.map((item) => {
+      const built = buildRows(item);
+      return { parsed: item, ...built };
+    });
+    await classifyRows(rows, existingAiCache);
+    let importedVendorCount = 0;
+    let importedProductCount = 0;
+    for (let index = 0; index < rows.length; index += CHUNK_SIZE) {
+      const chunk = rows.slice(index, index + CHUNK_SIZE);
+      const vendorMap = new Map();
+      for (const item of chunk) {
+        vendorMap.set(item.vendorRow.portal_vendor_id, item.vendorRow);
+      }
+      const vendors = [...vendorMap.values()];
+      const products = chunk.map((item) => item.productRow);
+      const start = index + 1;
+      const end = index + chunk.length;
+      console.log(`Importing chunk ${start}-${end} of ${rows.length}`);
+      const result = await postBatch(vendors, products, start, end);
+      importedVendorCount += Number(result.vendorCount || vendors.length || 0);
+      importedProductCount += Number(result.productCount || products.length || 0);
+      console.log(`Imported ${result.vendorCount} innovators and ${result.productCount} practices`);
+    }
+
+    await updateSyncRun(runId, {
+      status: "success",
+      finished_at: new Date().toISOString(),
+      vendor_count: importedVendorCount,
+      product_count: importedProductCount,
+      error_message: null,
+    });
+
+    console.log(`Done. Parsed ${parsed.length} practices.`);
+  } catch (error) {
+    await updateSyncRun(runId, {
+      status: "failed",
+      finished_at: new Date().toISOString(),
+      error_message: error instanceof Error ? error.message : String(error),
+    }).catch(() => null);
+    throw error;
+  }
 }
 
 main().catch((error) => {

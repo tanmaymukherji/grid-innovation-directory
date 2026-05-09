@@ -10,6 +10,10 @@ const corsHeaders = {
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SELCO_VENDOR_SERVICE_ROLE_KEY") ?? "";
 const gridLocalImportToken = Deno.env.get("GRID_LOCAL_IMPORT_TOKEN") ?? "";
+const githubToken = Deno.env.get("GITHUB_ACTIONS_TOKEN") ?? Deno.env.get("GITHUB_PAT") ?? "";
+const githubRepoOwner = Deno.env.get("GITHUB_REPO_OWNER") ?? "tanmaymukherji";
+const githubRepoName = Deno.env.get("GITHUB_REPO_NAME") ?? "grid-innovation-directory";
+const githubWorkflowId = Deno.env.get("GITHUB_WORKFLOW_ID") ?? "sync-grid-directory.yml";
 // The public GRID site is commonly linked under grid.undp.org.in, but the live TLS
 // certificate is issued for grid.gian.org.in. The edge function must fetch via the
 // certificate-matching host to avoid strict TLS failures inside Supabase.
@@ -578,6 +582,30 @@ async function handleDeleteGridSyncRun(token: string, runId: string) {
   return jsonResponse({ ok: true, message: "GRID sync log deleted." });
 }
 
+async function triggerGitHubWorkflow(requestedBy: string, syncMode: string) {
+  if (!githubToken) throw new Error("GITHUB_ACTIONS_TOKEN or GITHUB_PAT is not configured.");
+  const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(githubRepoOwner)}/${encodeURIComponent(githubRepoName)}/actions/workflows/${encodeURIComponent(githubWorkflowId)}/dispatches`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${githubToken}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+      "User-Agent": "grid-innovation-admin/2.0",
+    },
+    body: JSON.stringify({
+      ref: "main",
+      inputs: {
+        requested_by: requestedBy || "admin",
+        sync_mode: syncMode || "refresh",
+      },
+    }),
+  });
+  if (!response.ok) {
+    const raw = await response.text().catch(() => "");
+    throw new Error(raw || `GitHub workflow dispatch failed (${response.status}).`);
+  }
+}
+
 async function handleUpdateGridInnovator(token: string, portalVendorId: string, updates: Record<string, unknown>) {
   const supabase = getSupabaseAdmin();
   const session = await validateSession(token);
@@ -808,18 +836,18 @@ async function handleSyncGridDirectory(token: string, syncMode: string) {
   const session = await validateSession(token);
   if (!session) return errorResponse("Invalid admin session.", 401);
   const mode = requireString(syncMode) || "refresh";
-  if (mode === "ai-reprocess") {
+  try {
+    await triggerGitHubWorkflow(session.username || "admin", mode);
     return jsonResponse({
       ok: true,
-      queued: false,
-      message: "Run the local AI reprocess helper for existing GRID records: `node scripts/grid-ai-reprocess.mjs`. Use `GRID_ONLY_PRODUCT_ID` for a single practice or `GRID_REPROCESS_LIMIT` / `GRID_REPROCESS_OFFSET` for batches.",
+      queued: true,
+      message: mode === "ai-reprocess"
+        ? "GRID AI reprocessing queued in GitHub Actions. Refresh sync history shortly to see new import runs."
+        : "GRID website refresh queued in GitHub Actions. New website data will sync into Supabase while preserving manual admin fields.",
     });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "GRID sync could not be queued.", 500);
   }
-  return jsonResponse({
-    ok: true,
-    queued: false,
-    message: "Run the local GRID refresh importer: `node scripts/grid-local-import.mjs`. It refreshes source data and applies AI enrichment automatically when provider keys are configured.",
-  });
 }
 
 async function handleScheduledSync(receivedToken: string) {

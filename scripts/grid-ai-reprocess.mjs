@@ -6,6 +6,7 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.GRID_SUPABASE_SERVICE_ROLE_KEY || 
 const REPROCESS_LIMIT = Math.max(1, Number(process.env.GRID_REPROCESS_LIMIT || 200));
 const OFFSET = Math.max(0, Number(process.env.GRID_REPROCESS_OFFSET || 0));
 const ONLY_PRODUCT_ID = String(process.env.GRID_ONLY_PRODUCT_ID || "").trim();
+const REQUESTED_BY = process.env.GRID_REQUESTED_BY || process.env.GITHUB_ACTOR || "ai-reprocess";
 
 if (!SUPABASE_SERVICE_ROLE_KEY) {
   console.error("Missing GRID_SUPABASE_SERVICE_ROLE_KEY.");
@@ -51,6 +52,50 @@ async function fetchRows() {
   return Array.isArray(data) ? data : [];
 }
 
+async function createSyncRun() {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/grid_sync_runs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify([{
+      status: "running",
+      requested_by: `${REQUESTED_BY} ai-reprocess`,
+      started_at: new Date().toISOString(),
+    }]),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(text || `grid_sync_runs create failed (${response.status})`);
+  }
+  const data = await response.json();
+  return Array.isArray(data) && data[0]?.id ? String(data[0].id) : null;
+}
+
+async function updateSyncRun(runId, updates) {
+  if (!runId) return;
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/grid_sync_runs?id=eq.${encodeURIComponent(runId)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({
+      ...updates,
+      updated_at: new Date().toISOString(),
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(text || `grid_sync_runs update failed (${response.status})`);
+  }
+}
+
 function buildAiSourceHash(row) {
   return createHash("sha256").update(JSON.stringify({
     portal_product_id: row.portal_product_id,
@@ -91,14 +136,31 @@ async function updateRow(row, aiModel, aiSummary) {
 }
 
 async function main() {
-  const rows = await fetchRows();
-  console.log(`Loaded ${rows.length} practices for AI reprocessing.`);
-  for (const row of rows) {
-    console.log(`AI reprocess: ${row.product_name} (${row.portal_product_id})`);
-    const { aiModel, aiSummary } = await enrichGridPractice(buildGridAiContext(row));
-    await updateRow(row, aiModel, aiSummary);
+  const runId = await createSyncRun();
+  try {
+    const rows = await fetchRows();
+    console.log(`Loaded ${rows.length} practices for AI reprocessing.`);
+    for (const row of rows) {
+      console.log(`AI reprocess: ${row.product_name} (${row.portal_product_id})`);
+      const { aiModel, aiSummary } = await enrichGridPractice(buildGridAiContext(row));
+      await updateRow(row, aiModel, aiSummary);
+    }
+    await updateSyncRun(runId, {
+      status: "success",
+      finished_at: new Date().toISOString(),
+      vendor_count: 0,
+      product_count: rows.length,
+      error_message: null,
+    });
+    console.log("GRID AI reprocessing complete.");
+  } catch (error) {
+    await updateSyncRun(runId, {
+      status: "failed",
+      finished_at: new Date().toISOString(),
+      error_message: error instanceof Error ? error.message : String(error),
+    }).catch(() => null);
+    throw error;
   }
-  console.log("GRID AI reprocessing complete.");
 }
 
 main().catch((error) => {
