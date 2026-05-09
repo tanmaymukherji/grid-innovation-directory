@@ -8,6 +8,8 @@ const innovationSyncRuns = document.getElementById('innovationSyncRuns');
 const runInnovationSyncButton = document.getElementById('runInnovationSync');
 const manualSyncMode = document.getElementById('manualSyncMode');
 const signOutButton = document.getElementById('signOutButton');
+const innovationSyncRunningIndicator = document.getElementById('innovationSyncRunningIndicator');
+const innovationSyncRunningText = document.getElementById('innovationSyncRunningText');
 const adminEditorPanel = document.getElementById('adminEditorPanel');
 const adminSearchInput = document.getElementById('adminSearchInput');
 const filterMissingSixM = document.getElementById('filterMissingSixM');
@@ -41,6 +43,9 @@ const adminState = {
   filteredVendors: [],
   selectedVendorId: '',
   selectedProductId: '',
+  syncPollTimer: null,
+  syncPendingRefresh: false,
+  syncQueuedAt: 0,
   puterModelsLoaded: false,
   puterModels: [],
 };
@@ -207,13 +212,38 @@ function updateSessionUi(isSignedIn) {
   adminEditorPanel.classList.toggle('active', Boolean(isSignedIn));
 }
 
+function clearSyncPollTimer() {
+  if (adminState.syncPollTimer) {
+    window.clearTimeout(adminState.syncPollTimer);
+    adminState.syncPollTimer = null;
+  }
+}
+
+function setRunningIndicator(isRunning, message = '') {
+  if (!innovationSyncRunningIndicator || !innovationSyncRunningText) return;
+  innovationSyncRunningIndicator.hidden = !isRunning;
+  innovationSyncRunningText.textContent = message || 'GRID sync is running. This screen will refresh automatically when it completes.';
+}
+
+function scheduleSyncStatusPoll(delay = 15000) {
+  clearSyncPollTimer();
+  if (!getStoredToken()) return;
+  adminState.syncPollTimer = window.setTimeout(() => {
+    refreshSyncMonitor().catch(() => {});
+  }, delay);
+}
+
 function renderInnovationSyncRuns(items) {
   innovationSyncRuns.innerHTML = '';
   if (!items.length) {
     innovationSyncRuns.innerHTML = '<article class="admin-card"><p>No GRID sync runs yet.</p></article>';
-    return;
+    return { hasRunning: false, latestFinished: null };
   }
+  let hasRunning = false;
+  let latestFinished = null;
   items.forEach((item) => {
+    if (item.status === 'running') hasRunning = true;
+    if (!latestFinished && item.finished_at) latestFinished = item.finished_at;
     const card = document.createElement('article');
     card.className = 'admin-card';
     const summary = item.status === 'success'
@@ -223,6 +253,7 @@ function renderInnovationSyncRuns(items) {
     card.querySelector('[data-delete-sync-run]')?.addEventListener('click', () => deleteInnovationSyncRun(item.id));
     innovationSyncRuns.appendChild(card);
   });
+  return { hasRunning, latestFinished };
 }
 
 function getPracticeRecordsForVendor(vendorId) {
@@ -564,6 +595,8 @@ async function verifySession() {
     return true;
   } catch {
     storeToken('');
+    clearSyncPollTimer();
+    setRunningIndicator(false);
     updateSessionUi(false);
     innovationSyncMeta.textContent = 'Your admin session has expired. Please sign in again.';
     adminSearchMeta.textContent = 'Your admin session has expired. Please sign in again.';
@@ -574,30 +607,68 @@ async function verifySession() {
 async function loadInnovationSyncRuns() {
   const token = getStoredToken();
   if (!token) {
+    clearSyncPollTimer();
+    setRunningIndicator(false);
     innovationSyncMeta.textContent = 'Sign in as admin to view and run sync operations.';
     innovationSyncRuns.innerHTML = '';
-    return;
+    return { hasRunning: false, latestFinished: null, items: [] };
   }
   innovationSyncMeta.textContent = 'Loading GRID sync history...';
   try {
     const data = await InnovationStore.adminRequest('listGridSyncRuns', { token });
     const items = Array.isArray(data?.items) ? data.items : [];
     innovationSyncMeta.textContent = `${items.length} GRID sync run${items.length === 1 ? '' : 's'} recorded`;
-    renderInnovationSyncRuns(items);
+    const state = renderInnovationSyncRuns(items);
+    return { ...state, items };
   } catch (error) {
+    setRunningIndicator(false);
     innovationSyncMeta.textContent = error.message || 'GRID sync history could not be loaded.';
+    return { hasRunning: false, latestFinished: null, items: [] };
+  }
+}
+
+async function refreshSyncMonitor() {
+  const state = await loadInnovationSyncRuns();
+  const queuedRecently = adminState.syncQueuedAt && (Date.now() - adminState.syncQueuedAt < 3 * 60 * 1000);
+  const shouldShowRunning = state.hasRunning || (adminState.syncPendingRefresh && queuedRecently);
+  if (shouldShowRunning) {
+    const selectedMode = String(manualSyncMode?.value || 'refresh').trim();
+    const modeLabel = selectedMode === 'ai-reprocess' ? 'GRID AI reprocess' : 'GRID website refresh';
+    const message = state.hasRunning
+      ? `${modeLabel} is running. This screen will refresh automatically when it completes.`
+      : `${modeLabel} was just queued. Waiting for the run to appear...`;
+    setRunningIndicator(true, message);
+    scheduleSyncStatusPoll(15000);
+    return;
+  }
+  clearSyncPollTimer();
+  setRunningIndicator(false);
+  if (adminState.syncPendingRefresh) {
+    adminState.syncPendingRefresh = false;
+    adminState.syncQueuedAt = 0;
+    setStatus(sessionStatus, 'GRID sync completed. Refreshing saved data...');
+    await Promise.all([loadAdminDirectory(), loadInnovationSyncRuns()]);
+    setStatus(sessionStatus, 'GRID sync completed. The screen refreshed automatically.');
   }
 }
 
 async function runInnovationSync() {
   runInnovationSyncButton.disabled = true;
-  setStatus(sessionStatus, 'Preparing manual sync guidance...');
+  const selectedMode = String(manualSyncMode?.value || 'refresh').trim();
+  const modeLabel = selectedMode === 'ai-reprocess' ? 'GRID AI reprocess' : 'GRID website refresh';
+  setStatus(sessionStatus, `Queueing ${modeLabel}...`);
   try {
-    const selectedMode = String(manualSyncMode?.value || 'refresh').trim();
     const data = await InnovationStore.adminRequest('syncGridDirectory', { token: getStoredToken(), syncMode: selectedMode });
-    setStatus(sessionStatus, data.message || 'Manual sync guidance loaded.');
+    adminState.syncPendingRefresh = true;
+    adminState.syncQueuedAt = Date.now();
+    setRunningIndicator(true, `${modeLabel} was queued. Waiting for the run to start...`);
+    setStatus(sessionStatus, data.message || `${modeLabel} queued in GitHub Actions.`);
+    await refreshSyncMonitor();
   } catch (error) {
-    setStatus(sessionStatus, error.message || 'GRID refresh must be run locally with the importer script.', true);
+    adminState.syncPendingRefresh = false;
+    adminState.syncQueuedAt = 0;
+    setRunningIndicator(false);
+    setStatus(sessionStatus, error.message || 'GRID sync could not be queued.', true);
   } finally {
     runInnovationSyncButton.disabled = false;
   }
@@ -820,6 +891,10 @@ signOutButton.addEventListener('click', async () => {
     if (token) await InnovationStore.adminRequest('logout', { token });
   } catch {}
   storeToken('');
+  adminState.syncPendingRefresh = false;
+  adminState.syncQueuedAt = 0;
+  clearSyncPollTimer();
+  setRunningIndicator(false);
   adminState.vendors = [];
   adminState.products = [];
   adminState.filteredVendors = [];
@@ -866,7 +941,7 @@ adminPracticeForm.addEventListener('submit', savePracticeEdits);
 
 (async () => {
   const valid = await verifySession();
-  if (valid) await Promise.all([loadInnovationSyncRuns(), loadAdminDirectory()]);
+  if (valid) await Promise.all([refreshSyncMonitor(), loadAdminDirectory()]);
   if (window.puter?.ai) {
     setPuterStatus('Puter AI assist is available. Select a practice, then load models or use the default model.');
   } else {

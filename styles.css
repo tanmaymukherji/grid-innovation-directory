@@ -80,6 +80,8 @@ a{text-decoration:none}
 .toggle-item{display:flex;align-items:center;gap:.6rem;padding:.75rem .85rem;border:1px solid #d7e2ea;border-radius:12px;background:#fff;color:#314556;font-weight:600}
 .toggle-item input{margin:0}
 .admin-search-card{cursor:pointer}
+.admin-sync-indicator{display:flex;align-items:center;gap:.55rem;margin-top:.8rem;padding:.7rem .9rem;border:1px solid #d7e2ea;border-radius:12px;background:#f8fbfe;color:#314556}
+.admin-sync-dot{width:.8rem;height:.8rem;border-radius:999px;background:#f39c12;box-shadow:0 0 0 .18rem rgba(243,156,18,.18)}
 .session-panel,.queue-panel{display:none}
 .session-panel.active,.queue-panel.active{display:block}
 .admin-6m-helper{padding:.8rem;border:1px solid #d7e2ea;border-radius:14px;background:#f7fbfd}
