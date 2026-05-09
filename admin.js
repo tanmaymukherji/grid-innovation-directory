@@ -37,6 +37,7 @@ const puterStatus = document.getElementById('puterStatus');
 
 const ADMIN_SESSION_KEY = 'grid-innovation-admin-session';
 const SIX_M_OPTIONS = ['Manpower', 'Method', 'Material', 'Machine', 'Money', 'Market'];
+const SYNC_STALE_MINUTES = 10;
 const adminState = {
   vendors: [],
   products: [],
@@ -233,6 +234,23 @@ function scheduleSyncStatusPoll(delay = 15000) {
   }, delay);
 }
 
+function getEffectiveSyncRun(item) {
+  const status = String(item?.status || '').trim().toLowerCase();
+  if (status !== 'running') return { ...item, effective_status: status || 'unknown' };
+  const basis = item?.started_at || item?.created_at;
+  const startedMs = basis ? new Date(basis).getTime() : 0;
+  const staleBeforeMs = Date.now() - SYNC_STALE_MINUTES * 60 * 1000;
+  if (!Number.isFinite(startedMs) || startedMs <= 0 || startedMs >= staleBeforeMs) {
+    return { ...item, effective_status: 'running' };
+  }
+  return {
+    ...item,
+    effective_status: 'failed',
+    finished_at: item?.finished_at || new Date().toISOString(),
+    error_message: item?.error_message || `Marked failed in admin view after exceeding ${SYNC_STALE_MINUTES} minutes in running state.`,
+  };
+}
+
 function renderInnovationSyncRuns(items) {
   innovationSyncRuns.innerHTML = '';
   if (!items.length) {
@@ -241,15 +259,16 @@ function renderInnovationSyncRuns(items) {
   }
   let hasRunning = false;
   let latestFinished = null;
-  items.forEach((item) => {
-    if (item.status === 'running') hasRunning = true;
+  items.forEach((rawItem) => {
+    const item = getEffectiveSyncRun(rawItem);
+    if (item.effective_status === 'running') hasRunning = true;
     if (!latestFinished && item.finished_at) latestFinished = item.finished_at;
     const card = document.createElement('article');
     card.className = 'admin-card';
-    const summary = item.status === 'success'
+    const summary = item.effective_status === 'success'
       ? `${item.vendor_count || 0} innovators and ${item.product_count || 0} practices refreshed`
       : item.error_message || 'No details recorded.';
-    card.innerHTML = `<div class="admin-card-header"><h4>${escapeHtml(item.status || 'unknown')}</h4><span class="admin-badge ${item.status === 'success' ? 'approved' : ''}">${escapeHtml(item.status || 'unknown')}</span></div><p><strong>Requested By:</strong> ${escapeHtml(item.requested_by || 'Unknown')}</p><p><strong>Started:</strong> ${escapeHtml(formatDate(item.started_at || item.created_at))}</p><p><strong>Finished:</strong> ${escapeHtml(formatDate(item.finished_at))}</p><p><strong>Summary:</strong> ${escapeHtml(summary)}</p><p><strong>Error:</strong> ${escapeHtml(item.error_message || 'None')}</p><div class="btn-group"><button class="btn btn-danger btn-small" type="button" data-delete-sync-run="${escapeHtml(item.id || '')}">Delete Log</button></div></article>`;
+    card.innerHTML = `<div class="admin-card-header"><h4>${escapeHtml(item.effective_status || item.status || 'unknown')}</h4><span class="admin-badge ${item.effective_status === 'success' ? 'approved' : ''}">${escapeHtml(item.effective_status || item.status || 'unknown')}</span></div><p><strong>Requested By:</strong> ${escapeHtml(item.requested_by || 'Unknown')}</p><p><strong>Started:</strong> ${escapeHtml(formatDate(item.started_at || item.created_at))}</p><p><strong>Finished:</strong> ${escapeHtml(formatDate(item.finished_at))}</p><p><strong>Summary:</strong> ${escapeHtml(summary)}</p><p><strong>Error:</strong> ${escapeHtml(item.error_message || 'None')}</p><div class="btn-group"><button class="btn btn-danger btn-small" type="button" data-delete-sync-run="${escapeHtml(item.id || '')}">Delete Log</button></div></article>`;
     card.querySelector('[data-delete-sync-run]')?.addEventListener('click', () => deleteInnovationSyncRun(item.id));
     innovationSyncRuns.appendChild(card);
   });

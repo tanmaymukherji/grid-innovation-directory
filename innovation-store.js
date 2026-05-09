@@ -164,8 +164,11 @@ window.InnovationStore = (() => {
 
   async function adminRequest(action, payload = {}) {
     const config = window.APP_CONFIG || {};
-    const response = await fetch(ADMIN_API_URL(), {
+    const url = new URL(ADMIN_API_URL());
+    url.searchParams.set('_ts', String(Date.now()));
+    const response = await fetch(url.toString(), {
       method: 'POST',
+      cache: 'no-store',
       headers: {
         'Content-Type': 'application/json',
         apikey: String(config.SUPABASE_ANON_KEY || ''),
