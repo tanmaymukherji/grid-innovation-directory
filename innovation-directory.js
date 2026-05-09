@@ -26,7 +26,6 @@ const searchEls = {
 };
 
 const resultsEl = document.getElementById('vendor-results');
-const mapListEl = document.getElementById('map-results-list');
 const statusEl = document.getElementById('directory-status');
 const resultsSummaryEl = document.getElementById('results-summary');
 const paginationEls = [
@@ -330,9 +329,6 @@ function setSelectedVendor(vendorId) {
   document.querySelectorAll('[data-vendor-card]').forEach((card) => {
     card.classList.toggle('active', card.dataset.vendorCard === vendorId);
   });
-  document.querySelectorAll('[data-focus-vendor]').forEach((item) => {
-    item.classList.toggle('active', item.dataset.focusVendor === vendorId);
-  });
 }
 
 function focusVendor(vendorId, options = {}) {
@@ -492,10 +488,8 @@ async function renderMapMarkers(vendors) {
     if (point) points.push({ vendor, point });
   }
   if (!points.length) {
-    if (!vendors.length) {
-      mapListEl.innerHTML = '<div class="vendor-map-status">No mappable coordinates were available for the current search yet.</div>';
-    } else {
-      mapListEl.insertAdjacentHTML('afterbegin', '<div class="vendor-map-status">Matching innovators are listed here, but no usable coordinates could be derived from the current data yet.</div>');
+    if (vendors.length) {
+      statusEl.textContent = 'Matching innovators are listed below, but no usable coordinates could be derived from the current data yet.';
     }
     directoryState.map?.setCenter?.(INDIA_CENTER);
     directoryState.map?.setZoom?.(4.8);
@@ -550,15 +544,14 @@ async function renderResults() {
   const totalPages = getPageCount();
   const pageVendors = getPageResults();
   const mapVendors = directoryState.hasSearched ? directoryState.filteredVendors : [];
+  statusEl.textContent = `Loaded ${directoryState.vendors.length} innovators and ${directoryState.products.length} practices from the synced GRID directory.`;
   setCounts();
   resultsEl.innerHTML = '';
-  mapListEl.innerHTML = '';
   renderPagination(totalPages, totalMatches);
 
   if (!directoryState.hasSearched) {
     resultsSummaryEl.textContent = 'Choose an innovator, practice, location, tag, or keyword to search the directory.';
     resultsEl.innerHTML = '<div class="vendor-empty-state">The GRID directory is loaded and ready. Start with one of the dropdown filters or a keyword, then run the search to see matching innovators and practices.</div>';
-    mapListEl.innerHTML = '<div class="vendor-map-status">Run a search to display matching innovator locations on the map.</div>';
     await renderMapMarkers([]);
     return;
   }
@@ -566,17 +559,11 @@ async function renderResults() {
   if (!totalMatches) {
     resultsSummaryEl.textContent = 'No innovators matched the current filters.';
     resultsEl.innerHTML = '<div class="vendor-empty-state">No GRID innovators match this combination yet. Try a broader location, a different tag, or remove one filter at a time.</div>';
-    mapListEl.innerHTML = '<div class="vendor-map-status">No map results for the current search.</div>';
     await renderMapMarkers([]);
     return;
   }
 
   resultsSummaryEl.textContent = `${totalMatches} innovator result${totalMatches === 1 ? '' : 's'} found. Page ${directoryState.currentPage} of ${totalPages}.`;
-
-  mapVendors.forEach((vendor, index) => {
-    const practicePreview = (vendor.products || []).slice(0, 2).map((product) => product.product_name).join(' | ');
-    mapListEl.insertAdjacentHTML('beforeend', `<div class="vendor-map-list-item" data-focus-vendor="${esc(vendor.portal_vendor_id)}"><span class="vendor-flag">${index + 1}</span><span><strong>${esc(vendor.vendor_name)}</strong><br /><small>${esc(vendor.location_text || 'Location not listed')}</small><br /><small>${esc(practicePreview || 'Practice details available on detail page')}</small></span><div class="btn-group"><a class="btn btn-small" href="./vendor-detail.html?vendor=${encodeURIComponent(vendor.portal_vendor_id)}">View Details</a><a class="btn btn-warning btn-small" href="${esc(vendor.portal_vendor_link || '#')}" target="_blank" rel="noreferrer">Open GRID Source</a></div></div>`);
-  });
 
   pageVendors.forEach((vendor) => {
     const practicePreview = (vendor.products || []).slice(0, 4).map((product) => product.product_name).filter(Boolean);
@@ -660,11 +647,6 @@ Object.values(searchEls).forEach((input) => {
   input.addEventListener('keypress', (event) => { if (event.key === 'Enter') applyFilters(); });
   input.addEventListener('input', persistSearchState);
   input.addEventListener('change', persistSearchState);
-});
-mapListEl.addEventListener('click', (event) => {
-  if (event.target.closest('a')) return;
-  const target = event.target.closest('[data-focus-vendor]');
-  if (target) focusVendor(target.dataset.focusVendor);
 });
 resultsEl.addEventListener('click', (event) => {
   if (event.target.closest('a')) return;
