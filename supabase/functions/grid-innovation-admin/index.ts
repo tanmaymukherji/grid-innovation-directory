@@ -584,8 +584,12 @@ async function handleDeleteGridSyncRun(token: string, runId: string) {
 
 async function triggerGitHubWorkflow(requestedBy: string, syncMode: string) {
   if (!githubToken) throw new Error("GITHUB_ACTIONS_TOKEN or GITHUB_PAT is not configured.");
+  const normalizedMode = requireString(syncMode) || "refresh";
+  const preferredWorkflow = normalizedMode === "ai-reprocess"
+    ? "reprocess-grid-ai.yml"
+    : "sync-grid-directory.yml";
   const workflowCandidates = [
-    "sync-grid-directory.yml",
+    preferredWorkflow,
     githubWorkflowId,
   ].map((value) => requireString(value)).filter((value, index, list) => value && list.indexOf(value) === index);
 
@@ -603,7 +607,6 @@ async function triggerGitHubWorkflow(requestedBy: string, syncMode: string) {
         ref: "main",
         inputs: {
           requested_by: requestedBy || "admin",
-          sync_mode: syncMode || "refresh",
         },
       }),
     });

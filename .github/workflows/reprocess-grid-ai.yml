@@ -1,20 +1,20 @@
-name: Sync GRID Directory
+name: Reprocess GRID AI
 
 on:
   workflow_dispatch:
     inputs:
       requested_by:
-        description: Who requested this sync
+        description: Who requested this AI reprocess
         required: false
         type: string
         default: admin
 
 concurrency:
-  group: grid-sync
+  group: grid-ai-reprocess
   cancel-in-progress: false
 
 jobs:
-  sync:
+  reprocess:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -26,15 +26,13 @@ jobs:
         with:
           node-version: 20
 
-      - name: Run GRID website refresh
+      - name: Reprocess GRID AI classification
         env:
           GRID_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           GRID_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          GRID_LOCAL_IMPORT_TOKEN: ${{ secrets.GRID_LOCAL_IMPORT_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          GRID_ENABLE_AI_ENRICHMENT: 1
-          GRID_IMPORT_CHUNK_SIZE: 20
+          GRID_REPROCESS_LIMIT: 300
           GRID_REQUESTED_BY: ${{ inputs.requested_by || 'admin' }}
-        run: node scripts/grid-local-import.mjs
+        run: node scripts/grid-ai-reprocess.mjs
