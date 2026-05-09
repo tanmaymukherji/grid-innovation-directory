@@ -568,6 +568,16 @@ async function handleListGridSyncRuns(token: string) {
   return jsonResponse({ items: data ?? [] });
 }
 
+async function handleDeleteGridSyncRun(token: string, runId: string) {
+  const supabase = getSupabaseAdmin();
+  const session = await validateSession(token);
+  if (!session) return errorResponse("Invalid admin session.", 401);
+  if (!runId) return errorResponse("Missing sync run id.", 400);
+  const { error } = await supabase.from("grid_sync_runs").delete().eq("id", runId);
+  if (error) return errorResponse("GRID sync log could not be deleted.", 500);
+  return jsonResponse({ ok: true, message: "GRID sync log deleted." });
+}
+
 async function handleUpdateGridInnovator(token: string, portalVendorId: string, updates: Record<string, unknown>) {
   const supabase = getSupabaseAdmin();
   const session = await validateSession(token);
@@ -794,10 +804,22 @@ async function runGridSync(requestedBy: string) {
   }
 }
 
-async function handleSyncGridDirectory(token: string) {
+async function handleSyncGridDirectory(token: string, syncMode: string) {
   const session = await validateSession(token);
   if (!session) return errorResponse("Invalid admin session.", 401);
-  return errorResponse("GRID refreshes must be run locally with scripts/grid-local-import.mjs because the source scrape exceeds Supabase edge runtime limits.", 409);
+  const mode = requireString(syncMode) || "refresh";
+  if (mode === "ai-reprocess") {
+    return jsonResponse({
+      ok: true,
+      queued: false,
+      message: "Run the local AI reprocess helper for existing GRID records: `node scripts/grid-ai-reprocess.mjs`. Use `GRID_ONLY_PRODUCT_ID` for a single practice or `GRID_REPROCESS_LIMIT` / `GRID_REPROCESS_OFFSET` for batches.",
+    });
+  }
+  return jsonResponse({
+    ok: true,
+    queued: false,
+    message: "Run the local GRID refresh importer: `node scripts/grid-local-import.mjs`. It refreshes source data and applies AI enrichment automatically when provider keys are configured.",
+  });
 }
 
 async function handleScheduledSync(receivedToken: string) {
@@ -870,10 +892,12 @@ Deno.serve(async (request) => {
   const action = requireString(body.action);
   const token = requireString(body.token);
   const password = requireString(body.password);
+  const syncMode = requireString(body.syncMode);
   const receivedCronToken = requireString(body.cronToken);
   const importToken = requireString(body.importToken);
   const requestedBy = requireString(body.requestedBy);
   const portalVendorId = requireString(body.portalVendorId);
+  const runId = requireString(body.runId);
   const updates = (body.updates && typeof body.updates === "object" && !Array.isArray(body.updates))
     ? body.updates as Record<string, unknown>
     : {};
@@ -889,8 +913,10 @@ Deno.serve(async (request) => {
       return await handleLogout(token);
     case "listGridSyncRuns":
       return await handleListGridSyncRuns(token);
+    case "deleteGridSyncRun":
+      return await handleDeleteGridSyncRun(token, runId);
     case "syncGridDirectory":
-      return await handleSyncGridDirectory(token);
+      return await handleSyncGridDirectory(token, syncMode);
     case "updateGridInnovator":
       return await handleUpdateGridInnovator(token, portalVendorId, updates);
     case "updateGridPractice":

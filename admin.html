@@ -34,8 +34,15 @@
         <div id="sessionPanel" class="session-panel">
           <h3>Admin Controls</h3>
           <p class="section-note">Full GRID refreshes must be run locally with the importer script in this repo.</p>
+          <div class="form-group">
+            <label for="manualSyncMode">Manual Sync Run Menu</label>
+            <select id="manualSyncMode">
+              <option value="refresh">Refresh GRID Practices</option>
+              <option value="ai-reprocess">Reprocess AI Classification</option>
+            </select>
+          </div>
           <div class="btn-group">
-            <button class="btn btn-success" type="button" id="runInnovationSync">View Refresh Note</button>
+            <button class="btn btn-success" type="button" id="runInnovationSync">Open Manual Sync Guide</button>
             <button class="btn btn-danger btn-small" type="button" id="signOutButton">Sign Out</button>
           </div>
           <p class="admin-status" id="sessionStatus"></p>

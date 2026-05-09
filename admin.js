@@ -6,6 +6,7 @@ const innovationSyncPanel = document.getElementById('innovationSyncPanel');
 const innovationSyncMeta = document.getElementById('innovationSyncMeta');
 const innovationSyncRuns = document.getElementById('innovationSyncRuns');
 const runInnovationSyncButton = document.getElementById('runInnovationSync');
+const manualSyncMode = document.getElementById('manualSyncMode');
 const signOutButton = document.getElementById('signOutButton');
 const adminEditorPanel = document.getElementById('adminEditorPanel');
 const adminSearchInput = document.getElementById('adminSearchInput');
@@ -218,7 +219,8 @@ function renderInnovationSyncRuns(items) {
     const summary = item.status === 'success'
       ? `${item.vendor_count || 0} innovators and ${item.product_count || 0} practices refreshed`
       : item.error_message || 'No details recorded.';
-    card.innerHTML = `<div class="admin-card-header"><h4>${escapeHtml(item.status || 'unknown')}</h4><span class="admin-badge ${item.status === 'success' ? 'approved' : ''}">${escapeHtml(item.status || 'unknown')}</span></div><p><strong>Requested By:</strong> ${escapeHtml(item.requested_by || 'Unknown')}</p><p><strong>Started:</strong> ${escapeHtml(formatDate(item.started_at || item.created_at))}</p><p><strong>Finished:</strong> ${escapeHtml(formatDate(item.finished_at))}</p><p><strong>Summary:</strong> ${escapeHtml(summary)}</p><p><strong>Error:</strong> ${escapeHtml(item.error_message || 'None')}</p></article>`;
+    card.innerHTML = `<div class="admin-card-header"><h4>${escapeHtml(item.status || 'unknown')}</h4><span class="admin-badge ${item.status === 'success' ? 'approved' : ''}">${escapeHtml(item.status || 'unknown')}</span></div><p><strong>Requested By:</strong> ${escapeHtml(item.requested_by || 'Unknown')}</p><p><strong>Started:</strong> ${escapeHtml(formatDate(item.started_at || item.created_at))}</p><p><strong>Finished:</strong> ${escapeHtml(formatDate(item.finished_at))}</p><p><strong>Summary:</strong> ${escapeHtml(summary)}</p><p><strong>Error:</strong> ${escapeHtml(item.error_message || 'None')}</p><div class="btn-group"><button class="btn btn-danger btn-small" type="button" data-delete-sync-run="${escapeHtml(item.id || '')}">Delete Log</button></div></article>`;
+    card.querySelector('[data-delete-sync-run]')?.addEventListener('click', () => deleteInnovationSyncRun(item.id));
     innovationSyncRuns.appendChild(card);
   });
 }
@@ -589,15 +591,31 @@ async function loadInnovationSyncRuns() {
 
 async function runInnovationSync() {
   runInnovationSyncButton.disabled = true;
-  setStatus(sessionStatus, 'Checking GRID refresh path...');
+  setStatus(sessionStatus, 'Preparing manual sync guidance...');
   try {
-    const data = await InnovationStore.adminRequest('syncGridDirectory', { token: getStoredToken() });
-    setStatus(sessionStatus, data.message || `Manual sync completed: ${data.vendorCount || 0} innovators and ${data.productCount || 0} practices refreshed in this batch.`);
-    await Promise.all([loadInnovationSyncRuns(), loadAdminDirectory()]);
+    const selectedMode = String(manualSyncMode?.value || 'refresh').trim();
+    const data = await InnovationStore.adminRequest('syncGridDirectory', { token: getStoredToken(), syncMode: selectedMode });
+    setStatus(sessionStatus, data.message || 'Manual sync guidance loaded.');
   } catch (error) {
     setStatus(sessionStatus, error.message || 'GRID refresh must be run locally with the importer script.', true);
   } finally {
     runInnovationSyncButton.disabled = false;
+  }
+}
+
+async function deleteInnovationSyncRun(runId) {
+  const token = getStoredToken();
+  if (!token || !runId) {
+    setStatus(sessionStatus, 'Select a valid sync log first.', true);
+    return;
+  }
+  setStatus(sessionStatus, 'Deleting sync log...');
+  try {
+    const data = await InnovationStore.adminRequest('deleteGridSyncRun', { token, runId });
+    setStatus(sessionStatus, data?.message || 'GRID sync log deleted.');
+    await loadInnovationSyncRuns();
+  } catch (error) {
+    setStatus(sessionStatus, error.message || 'GRID sync log could not be deleted.', true);
   }
 }
 
@@ -666,11 +684,25 @@ async function savePracticeEdits(event) {
         admin_notes: editPracticeEls.adminNotes.value,
       },
     };
-    await InnovationStore.adminRequest('updateGridPractice', payload);
+    const data = await InnovationStore.adminRequest('updateGridPractice', payload);
+    const updatedItem = data?.item || null;
+    if (updatedItem?.portal_product_id) {
+      adminState.products = adminState.products.map((item) => (
+        item.portal_product_id === updatedItem.portal_product_id ? { ...item, ...updatedItem } : item
+      ));
+    }
     setStatus(adminPracticeStatus, 'Practice classification updated.');
-    await loadAdminDirectory();
-    selectVendor(adminState.selectedVendorId);
-    selectProduct(portalProductId);
+    applyAdminQueueFilters();
+    if (adminState.selectedVendorId && adminState.filteredVendors.some((item) => item.portal_vendor_id === adminState.selectedVendorId)) {
+      selectVendor(adminState.selectedVendorId);
+      if (practiceMatchesQueueFilters(updatedItem || getSelectedPractice())) {
+        selectProduct(portalProductId);
+      }
+    } else {
+      adminState.selectedVendorId = '';
+      adminState.selectedProductId = '';
+      setPracticeEditorVisible(false);
+    }
   } catch (error) {
     setStatus(adminPracticeStatus, error.message || 'Practice update failed.', true);
   } finally {
