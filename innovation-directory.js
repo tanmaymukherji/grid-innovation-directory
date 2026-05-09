@@ -261,8 +261,9 @@ function scoreVendor(vendor, filters) {
 
   if (filters.sixmValues.length) {
     const storySixM = new Set(index.sixm || []);
-    if (!filters.sixmValues.every((value) => storySixM.has(value))) return null;
-    score += filters.sixmValues.length * 18;
+    const matchedSixMCount = filters.sixmValues.filter((value) => storySixM.has(value)).length;
+    if (!matchedSixMCount) return null;
+    score += matchedSixMCount * 18;
   }
 
   if (filters.keywordTokens.length) {
