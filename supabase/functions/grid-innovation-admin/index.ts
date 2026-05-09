@@ -548,8 +548,27 @@ function buildVendorId(parsed: ParsedPractice) {
 
 async function markStaleRunningSyncs() {
   const supabase = getSupabaseAdmin();
-  const staleBefore = new Date(Date.now() - STALE_RUN_MINUTES * 60 * 1000).toISOString();
-  const { error } = await supabase
+  const staleBeforeMs = Date.now() - STALE_RUN_MINUTES * 60 * 1000;
+  const { data, error } = await supabase
+    .from("grid_sync_runs")
+    .select("id, status, started_at, created_at, requested_by")
+    .eq("status", "running")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) throw new Error(`Could not inspect stale GRID sync runs: ${error.message}`);
+
+  const staleIds = (data || [])
+    .filter((item) => {
+      const basis = item.started_at || item.created_at;
+      const startedMs = basis ? new Date(String(basis)).getTime() : 0;
+      return Number.isFinite(startedMs) && startedMs > 0 && startedMs < staleBeforeMs;
+    })
+    .map((item) => String(item.id || "").trim())
+    .filter(Boolean);
+
+  if (!staleIds.length) return;
+
+  const { error: updateError } = await supabase
     .from("grid_sync_runs")
     .update({
       status: "failed",
@@ -557,9 +576,8 @@ async function markStaleRunningSyncs() {
       error_message: `Marked failed automatically after exceeding ${STALE_RUN_MINUTES} minutes in running state.`,
       updated_at: new Date().toISOString(),
     })
-    .eq("status", "running")
-    .lt("started_at", staleBefore);
-  if (error) throw new Error(`Could not update stale GRID sync runs: ${error.message}`);
+    .in("id", staleIds);
+  if (updateError) throw new Error(`Could not update stale GRID sync runs: ${updateError.message}`);
 }
 
 async function handleListGridSyncRuns(token: string) {
