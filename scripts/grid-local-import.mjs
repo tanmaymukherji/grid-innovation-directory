@@ -13,6 +13,7 @@ const CHUNK_SIZE = Number(process.env.GRID_IMPORT_CHUNK_SIZE || 20);
 const FORCE_AI_RECLASSIFY = process.env.GRID_FORCE_AI_RECLASSIFY === "1";
 const ENABLE_AI_ENRICHMENT = process.env.GRID_ENABLE_AI_ENRICHMENT !== "0";
 const REQUESTED_BY = process.env.GRID_REQUESTED_BY || process.env.GITHUB_ACTOR || "local-import";
+const SYNC_REQUEST_ID = String(process.env.GRID_SYNC_REQUEST_ID || "").trim();
 
 if (!SUPABASE_SERVICE_ROLE_KEY && !IMPORT_TOKEN) {
   console.error("Missing GRID_SUPABASE_SERVICE_ROLE_KEY or GRID_LOCAL_IMPORT_TOKEN environment variable.");
@@ -433,6 +434,16 @@ async function upsertRows(table, onConflict, rows) {
 
 async function createSyncRun() {
   if (!SUPABASE_SERVICE_ROLE_KEY) return null;
+  if (SYNC_REQUEST_ID) {
+    await updateSyncRun(SYNC_REQUEST_ID, {
+      status: "running",
+      requested_by: REQUESTED_BY,
+      started_at: new Date().toISOString(),
+      finished_at: null,
+      error_message: null,
+    });
+    return SYNC_REQUEST_ID;
+  }
   const response = await fetch(`${SUPABASE_URL}/rest/v1/grid_sync_runs`, {
     method: "POST",
     headers: {

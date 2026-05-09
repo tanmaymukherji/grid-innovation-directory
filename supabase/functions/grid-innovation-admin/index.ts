@@ -600,7 +600,7 @@ async function handleDeleteGridSyncRun(token: string, runId: string) {
   return jsonResponse({ ok: true, message: "GRID sync log deleted." });
 }
 
-async function triggerGitHubWorkflow(requestedBy: string, syncMode: string) {
+async function triggerGitHubWorkflow(requestedBy: string, syncMode: string, requestId: string) {
   if (!githubToken) throw new Error("GITHUB_ACTIONS_TOKEN or GITHUB_PAT is not configured.");
   const normalizedMode = requireString(syncMode) || "refresh";
   const preferredWorkflow = normalizedMode === "ai-reprocess"
@@ -625,6 +625,7 @@ async function triggerGitHubWorkflow(requestedBy: string, syncMode: string) {
         ref: "main",
         inputs: {
           requested_by: requestedBy || "admin",
+          request_id: requestId,
         },
       }),
     });
@@ -869,20 +870,42 @@ async function runGridSync(requestedBy: string) {
 }
 
 async function handleSyncGridDirectory(token: string, syncMode: string) {
+  const supabase = getSupabaseAdmin();
   const session = await validateSession(token);
   if (!session) return errorResponse("Invalid admin session.", 401);
   const mode = requireString(syncMode) || "refresh";
+  const requestedBy = session.username || "admin";
+  const requestLabel = mode === "ai-reprocess" ? `${requestedBy} ai-reprocess` : `${requestedBy} refresh`;
+  const { data: runData, error: runError } = await supabase.from("grid_sync_runs").insert({
+    status: "queued",
+    requested_by: requestLabel,
+    error_message: mode === "ai-reprocess"
+      ? "Queued in GitHub Actions for AI reprocessing."
+      : "Queued in GitHub Actions for GRID website refresh.",
+  }).select("id").single();
+  if (runError || !runData?.id) {
+    return errorResponse(`GRID sync queue record could not be created: ${runError?.message || "Unknown error"}`, 500);
+  }
+  const requestId = String(runData.id);
   try {
-    await triggerGitHubWorkflow(session.username || "admin", mode);
+    await triggerGitHubWorkflow(requestedBy, mode, requestId);
     return jsonResponse({
       ok: true,
       queued: true,
+      requestId,
       message: mode === "ai-reprocess"
-        ? "GRID AI reprocessing queued in GitHub Actions. Refresh sync history shortly to see new import runs."
-        : "GRID website refresh queued in GitHub Actions. New website data will sync into Supabase while preserving manual admin fields.",
+        ? "GRID AI reprocessing queued in GitHub Actions. Sync history will update as the run moves from queued to running."
+        : "GRID website refresh queued in GitHub Actions. Sync history will update as the run moves from queued to running.",
     });
   } catch (error) {
-    return errorResponse(error instanceof Error ? error.message : "GRID sync could not be queued.", 500);
+    const message = error instanceof Error ? error.message : "GRID sync could not be queued.";
+    await supabase.from("grid_sync_runs").update({
+      status: "failed",
+      finished_at: new Date().toISOString(),
+      error_message: message,
+      updated_at: new Date().toISOString(),
+    }).eq("id", requestId);
+    return errorResponse(message, 500);
   }
 }
 

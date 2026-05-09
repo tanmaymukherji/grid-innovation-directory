@@ -7,6 +7,7 @@ const REPROCESS_LIMIT = Math.max(1, Number(process.env.GRID_REPROCESS_LIMIT || 2
 const OFFSET = Math.max(0, Number(process.env.GRID_REPROCESS_OFFSET || 0));
 const ONLY_PRODUCT_ID = String(process.env.GRID_ONLY_PRODUCT_ID || "").trim();
 const REQUESTED_BY = process.env.GRID_REQUESTED_BY || process.env.GITHUB_ACTOR || "ai-reprocess";
+const SYNC_REQUEST_ID = String(process.env.GRID_SYNC_REQUEST_ID || "").trim();
 
 if (!SUPABASE_SERVICE_ROLE_KEY) {
   console.error("Missing GRID_SUPABASE_SERVICE_ROLE_KEY.");
@@ -53,6 +54,16 @@ async function fetchRows() {
 }
 
 async function createSyncRun() {
+  if (SYNC_REQUEST_ID) {
+    await updateSyncRun(SYNC_REQUEST_ID, {
+      status: "running",
+      requested_by: `${REQUESTED_BY} ai-reprocess`,
+      started_at: new Date().toISOString(),
+      finished_at: null,
+      error_message: null,
+    });
+    return SYNC_REQUEST_ID;
+  }
   const response = await fetch(`${SUPABASE_URL}/rest/v1/grid_sync_runs`, {
     method: "POST",
     headers: {

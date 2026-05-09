@@ -8,6 +8,11 @@ on:
         required: false
         type: string
         default: admin
+      request_id:
+        description: Sync history request id
+        required: false
+        type: string
+        default: ""
 
 concurrency:
   group: grid-ai-reprocess
@@ -35,4 +40,5 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GRID_REPROCESS_LIMIT: 300
           GRID_REQUESTED_BY: ${{ inputs.requested_by || 'admin' }}
+          GRID_SYNC_REQUEST_ID: ${{ inputs.request_id || '' }}
         run: node scripts/grid-ai-reprocess.mjs
