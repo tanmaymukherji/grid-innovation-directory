@@ -13,7 +13,7 @@ const gridLocalImportToken = Deno.env.get("GRID_LOCAL_IMPORT_TOKEN") ?? "";
 const githubToken = Deno.env.get("GITHUB_ACTIONS_TOKEN") ?? Deno.env.get("GITHUB_PAT") ?? "";
 const githubRepoOwner = Deno.env.get("GITHUB_REPO_OWNER") ?? "tanmaymukherji";
 const githubRepoName = Deno.env.get("GITHUB_REPO_NAME") ?? "grid-innovation-directory";
-const githubWorkflowId = Deno.env.get("GITHUB_WORKFLOW_ID") ?? "sync-grid-directory.yml";
+const githubWorkflowId = Deno.env.get("GITHUB_WORKFLOW_ID") ?? "";
 // The public GRID site is commonly linked under grid.undp.org.in, but the live TLS
 // certificate is issued for grid.gian.org.in. The edge function must fetch via the
 // certificate-matching host to avoid strict TLS failures inside Supabase.
@@ -584,26 +584,41 @@ async function handleDeleteGridSyncRun(token: string, runId: string) {
 
 async function triggerGitHubWorkflow(requestedBy: string, syncMode: string) {
   if (!githubToken) throw new Error("GITHUB_ACTIONS_TOKEN or GITHUB_PAT is not configured.");
-  const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(githubRepoOwner)}/${encodeURIComponent(githubRepoName)}/actions/workflows/${encodeURIComponent(githubWorkflowId)}/dispatches`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${githubToken}`,
-      Accept: "application/vnd.github+json",
-      "Content-Type": "application/json",
-      "User-Agent": "grid-innovation-admin/2.0",
-    },
-    body: JSON.stringify({
-      ref: "main",
-      inputs: {
-        requested_by: requestedBy || "admin",
-        sync_mode: syncMode || "refresh",
+  const workflowCandidates = [
+    "sync-grid-directory.yml",
+    githubWorkflowId,
+  ].map((value) => requireString(value)).filter((value, index, list) => value && list.indexOf(value) === index);
+
+  let lastError = "";
+  for (const workflowId of workflowCandidates) {
+    const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(githubRepoOwner)}/${encodeURIComponent(githubRepoName)}/actions/workflows/${encodeURIComponent(workflowId)}/dispatches`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${githubToken}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+        "User-Agent": "grid-innovation-admin/2.1",
       },
-    }),
-  });
-  if (!response.ok) {
+      body: JSON.stringify({
+        ref: "main",
+        inputs: {
+          requested_by: requestedBy || "admin",
+          sync_mode: syncMode || "refresh",
+        },
+      }),
+    });
+    if (response.ok) return;
     const raw = await response.text().catch(() => "");
-    throw new Error(raw || `GitHub workflow dispatch failed (${response.status}).`);
+    lastError = raw || `GitHub workflow dispatch failed (${response.status}).`;
+    if (response.status === 422 && /Unexpected inputs provided/i.test(lastError)) {
+      continue;
+    }
+    if (response.status === 404) {
+      continue;
+    }
+    throw new Error(lastError);
   }
+  throw new Error(lastError || "GitHub workflow dispatch failed.");
 }
 
 async function handleUpdateGridInnovator(token: string, portalVendorId: string, updates: Record<string, unknown>) {
