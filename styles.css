@@ -76,6 +76,9 @@ a{text-decoration:none}
 .checkbox-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.55rem}
 .checkbox-item{display:flex;align-items:center;gap:.55rem;padding:.65rem .75rem;border:1px solid #d7e2ea;border-radius:12px;background:#fff;color:#314556}
 .checkbox-item input{margin:0}
+.toggle-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.6rem}
+.toggle-item{display:flex;align-items:center;gap:.6rem;padding:.75rem .85rem;border:1px solid #d7e2ea;border-radius:12px;background:#fff;color:#314556;font-weight:600}
+.toggle-item input{margin:0}
 .admin-search-card{cursor:pointer}
 .session-panel,.queue-panel{display:none}
 .session-panel.active,.queue-panel.active{display:block}

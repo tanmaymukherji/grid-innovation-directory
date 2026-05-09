@@ -9,6 +9,8 @@ const runInnovationSyncButton = document.getElementById('runInnovationSync');
 const signOutButton = document.getElementById('signOutButton');
 const adminEditorPanel = document.getElementById('adminEditorPanel');
 const adminSearchInput = document.getElementById('adminSearchInput');
+const filterMissingSixM = document.getElementById('filterMissingSixM');
+const filterMissingTags = document.getElementById('filterMissingTags');
 const adminSearchMeta = document.getElementById('adminSearchMeta');
 const adminSearchResults = document.getElementById('adminSearchResults');
 const adminPracticeList = document.getElementById('adminPracticeList');
@@ -243,6 +245,33 @@ function getSelectedPractice() {
   return adminState.products.find((item) => item.portal_product_id === adminState.selectedProductId) || null;
 }
 
+function isPracticeMissingSixM(product) {
+  return !(Array.isArray(product?.six_m_categories) && product.six_m_categories.filter(Boolean).length);
+}
+
+function isPracticeMissingReviewedTags(product) {
+  return !(Array.isArray(product?.reviewed_tags) && product.reviewed_tags.filter(Boolean).length);
+}
+
+function practiceMatchesQueueFilters(product) {
+  const requireMissingSixM = Boolean(filterMissingSixM?.checked);
+  const requireMissingTags = Boolean(filterMissingTags?.checked);
+  if (!requireMissingSixM && !requireMissingTags) return true;
+  if (requireMissingSixM && !isPracticeMissingSixM(product)) return false;
+  if (requireMissingTags && !isPracticeMissingReviewedTags(product)) return false;
+  return true;
+}
+
+function getVendorPracticeQueueStats(vendorId) {
+  const products = getPracticeRecordsForVendor(vendorId);
+  return {
+    total: products.length,
+    missingSixM: products.filter(isPracticeMissingSixM).length,
+    missingTags: products.filter(isPracticeMissingReviewedTags).length,
+    matchingQueue: products.filter(practiceMatchesQueueFilters).length,
+  };
+}
+
 function buildVendorSearchText(vendor) {
   const linkedProducts = getPracticeRecordsForVendor(vendor.portal_vendor_id);
   const practiceNames = linkedProducts.map((product) => product.product_name).join(' ');
@@ -275,9 +304,11 @@ function buildVendorSearchText(vendor) {
 function filterAdminVendors() {
   const query = String(adminSearchInput.value || '').trim().toLowerCase();
   const vendors = [...adminState.vendors].sort((left, right) => String(left.vendor_name || '').localeCompare(String(right.vendor_name || '')));
-  adminState.filteredVendors = !query
-    ? vendors
-    : vendors.filter((vendor) => buildVendorSearchText(vendor).includes(query));
+  adminState.filteredVendors = vendors.filter((vendor) => {
+    const matchesQuery = !query || buildVendorSearchText(vendor).includes(query);
+    if (!matchesQuery) return false;
+    return getVendorPracticeQueueStats(vendor.portal_vendor_id).matchingQueue > 0;
+  });
 }
 
 function renderAdminResults() {
@@ -288,12 +319,17 @@ function renderAdminResults() {
     return;
   }
 
-  adminSearchMeta.textContent = `${adminState.filteredVendors.length} innovator record${adminState.filteredVendors.length === 1 ? '' : 's'} found`;
+  const totalPractices = adminState.products.length;
+  const missingSixMCount = adminState.products.filter(isPracticeMissingSixM).length;
+  const missingTagsCount = adminState.products.filter(isPracticeMissingReviewedTags).length;
+  const queueMode = [filterMissingSixM?.checked ? '6M' : '', filterMissingTags?.checked ? 'tags' : ''].filter(Boolean).join(' + ');
+  adminSearchMeta.textContent = `${adminState.filteredVendors.length} innovator record${adminState.filteredVendors.length === 1 ? '' : 's'} found${queueMode ? ` for pending ${queueMode}` : ''}. Pending across GRID: ${missingSixMCount}/${totalPractices} missing 6M, ${missingTagsCount}/${totalPractices} missing reviewed tags.`;
   adminState.filteredVendors.forEach((vendor) => {
     const products = getPracticeRecordsForVendor(vendor.portal_vendor_id).slice(0, 3);
+    const queueStats = getVendorPracticeQueueStats(vendor.portal_vendor_id);
     const card = document.createElement('article');
     card.className = `admin-card admin-search-card${vendor.portal_vendor_id === adminState.selectedVendorId ? ' active' : ''}`;
-    card.innerHTML = `<div class="admin-card-header"><h4>${escapeHtml(vendor.vendor_name || 'Unknown Innovator')}</h4><span class="admin-badge approved">${escapeHtml(String(products.length || vendor.products_count || 0))} practices</span></div><p><strong>Location:</strong> ${escapeHtml(vendor.location_text || vendor.final_contact_address || 'Not listed')}</p><p><strong>District/State:</strong> ${escapeHtml([vendor.district, vendor.state].filter(Boolean).join(', ') || 'Not listed')}</p><small>${escapeHtml(products.map((product) => product.product_name).join(' | ') || 'No linked practices listed')}</small>`;
+    card.innerHTML = `<div class="admin-card-header"><h4>${escapeHtml(vendor.vendor_name || 'Unknown Innovator')}</h4><span class="admin-badge approved">${escapeHtml(String(products.length || vendor.products_count || 0))} practices</span></div><p><strong>Location:</strong> ${escapeHtml(vendor.location_text || vendor.final_contact_address || 'Not listed')}</p><p><strong>District/State:</strong> ${escapeHtml([vendor.district, vendor.state].filter(Boolean).join(', ') || 'Not listed')}</p><p><strong>Pending Review:</strong> ${escapeHtml(`${queueStats.missingSixM} missing 6M | ${queueStats.missingTags} missing tags`)}</p><small>${escapeHtml(products.map((product) => product.product_name).join(' | ') || 'No linked practices listed')}</small>`;
     card.addEventListener('click', () => selectVendor(vendor.portal_vendor_id));
     adminSearchResults.appendChild(card);
   });
@@ -336,9 +372,10 @@ function renderPracticeList(vendorId) {
     adminPracticeList.innerHTML = '<article class="admin-card"><p>Select an innovator to load its practices.</p></article>';
     return;
   }
-  const products = getPracticeRecordsForVendor(vendorId);
+  const products = getPracticeRecordsForVendor(vendorId).filter(practiceMatchesQueueFilters);
   if (!products.length) {
-    adminPracticeList.innerHTML = '<article class="admin-card"><p>No practice records are linked to this innovator.</p></article>';
+    const queueMode = [filterMissingSixM?.checked ? '6M classification' : '', filterMissingTags?.checked ? 'reviewed tags' : ''].filter(Boolean).join(' and ');
+    adminPracticeList.innerHTML = `<article class="admin-card"><p>${escapeHtml(queueMode ? `No practices for this innovator are awaiting ${queueMode}.` : 'No practice records are linked to this innovator.')}</p></article>`;
     return;
   }
   products.forEach((product) => {
@@ -346,7 +383,11 @@ function renderPracticeList(vendorId) {
     card.className = `admin-card admin-search-card${product.portal_product_id === adminState.selectedProductId ? ' active' : ''}`;
     const tags = getEffectiveProductTags(product).slice(0, 6).join(', ') || 'No tags reviewed';
     const sixm = getEffectiveProductSixM(product).join(', ') || 'No 6M set';
-    card.innerHTML = `<div class="admin-card-header"><h4>${escapeHtml(product.product_name || 'Untitled practice')}</h4><span class="admin-badge approved">${escapeHtml((product.product_categories || []).join(', ') || 'GRID Practice')}</span></div><p><strong>Tags:</strong> ${escapeHtml(tags)}</p><p><strong>6M:</strong> ${escapeHtml(sixm)}</p><small>${escapeHtml(product.practice_summary || product.product_description || 'No summary saved')}</small>`;
+    const queueFlags = [
+      isPracticeMissingSixM(product) ? 'Missing 6M' : '',
+      isPracticeMissingReviewedTags(product) ? 'Missing reviewed tags' : '',
+    ].filter(Boolean).join(' | ');
+    card.innerHTML = `<div class="admin-card-header"><h4>${escapeHtml(product.product_name || 'Untitled practice')}</h4><span class="admin-badge approved">${escapeHtml((product.product_categories || []).join(', ') || 'GRID Practice')}</span></div><p><strong>Tags:</strong> ${escapeHtml(tags)}</p><p><strong>6M:</strong> ${escapeHtml(sixm)}</p><p><strong>Queue Status:</strong> ${escapeHtml(queueFlags || 'Reviewed')}</p><small>${escapeHtml(product.practice_summary || product.product_description || 'No summary saved')}</small>`;
     card.addEventListener('click', () => selectProduct(product.portal_product_id));
     adminPracticeList.appendChild(card);
   });
@@ -439,7 +480,7 @@ function applyPuterPracticeMetadata(payload, updateMode) {
 function selectProduct(productId) {
   adminState.selectedProductId = productId || '';
   const product = adminState.products.find((item) => item.portal_product_id === productId);
-  if (!product) {
+  if (!product || !practiceMatchesQueueFilters(product)) {
     setPracticeEditorVisible(false);
     renderPracticeList(adminState.selectedVendorId);
     return;
@@ -462,7 +503,7 @@ function selectVendor(vendorId) {
   fillEditor(vendor);
   renderAdminResults();
   renderPracticeList(vendor.portal_vendor_id);
-  const products = getPracticeRecordsForVendor(vendor.portal_vendor_id);
+  const products = getPracticeRecordsForVendor(vendor.portal_vendor_id).filter(practiceMatchesQueueFilters);
   const nextProductId = products.some((item) => item.portal_product_id === adminState.selectedProductId)
     ? adminState.selectedProductId
     : (products[0]?.portal_product_id || '');
@@ -492,6 +533,19 @@ async function loadAdminDirectory() {
   } catch (error) {
     adminSearchMeta.textContent = error.message || 'Innovator records could not be loaded.';
     adminSearchResults.innerHTML = '';
+  }
+}
+
+function applyAdminQueueFilters() {
+  filterAdminVendors();
+  renderAdminResults();
+  if (adminState.selectedVendorId && adminState.filteredVendors.some((item) => item.portal_vendor_id === adminState.selectedVendorId)) {
+    selectVendor(adminState.selectedVendorId);
+    return;
+  }
+  if (adminState.selectedVendorId && !adminState.filteredVendors.some((item) => item.portal_vendor_id === adminState.selectedVendorId)) {
+    adminState.selectedProductId = '';
+    setPracticeEditorVisible(false);
   }
 }
 
@@ -756,9 +810,10 @@ signOutButton.addEventListener('click', async () => {
 
 runInnovationSyncButton.addEventListener('click', async () => { await runInnovationSync(); });
 adminSearchInput.addEventListener('input', () => {
-  filterAdminVendors();
-  renderAdminResults();
+  applyAdminQueueFilters();
 });
+filterMissingSixM?.addEventListener('change', applyAdminQueueFilters);
+filterMissingTags?.addEventListener('change', applyAdminQueueFilters);
 editPracticeEls.sixm.addEventListener('input', () => {
   renderSixMPreview(editPracticeEls.sixm.value);
 });

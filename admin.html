@@ -54,6 +54,19 @@
           <label for="adminSearchInput">Search Innovators</label>
           <input id="adminSearchInput" type="search" placeholder="Search by innovator, practice, location, district, state, keyword, reviewed tags, or 6M" />
         </div>
+        <div class="form-group">
+          <label>Review Queue Filters</label>
+          <div class="toggle-grid">
+            <label class="toggle-item">
+              <input id="filterMissingSixM" type="checkbox" />
+              <span>Awaiting 6M Classification</span>
+            </label>
+            <label class="toggle-item">
+              <input id="filterMissingTags" type="checkbox" />
+              <span>Awaiting Reviewed Tags</span>
+            </label>
+          </div>
+        </div>
         <p class="admin-helper" id="adminSearchMeta">Sign in as admin to search and edit innovator records.</p>
         <div class="admin-editor-layout">
           <div class="admin-card-list" id="adminSearchResults"></div>
