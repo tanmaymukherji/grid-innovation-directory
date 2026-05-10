@@ -39,6 +39,12 @@ a{text-decoration:none}
 .admin-card,.vendor-result-card,.vendor-product-card{background:#f8f9fa;border:1px solid #dfe4ea;border-radius:16px;padding:1rem}
 .admin-card h4,.vendor-result-card h4,.vendor-product-card h4{margin-bottom:.35rem;color:#22313f}
 .admin-card p,.vendor-result-card p,.vendor-product-card p{margin-bottom:.5rem;color:#536171;line-height:1.5}
+.vendor-result-card-fixed{display:grid;grid-template-rows:auto auto minmax(0,1fr);height:460px;overflow:hidden}
+.vendor-card-actions{margin:.15rem 0 .7rem}
+.vendor-card-scroll{min-height:0;overflow:auto;padding-right:.3rem}
+.vendor-card-scroll::-webkit-scrollbar{width:8px}
+.vendor-card-scroll::-webkit-scrollbar-thumb{background:#c7d4de;border-radius:999px}
+.vendor-card-scroll::-webkit-scrollbar-track{background:transparent}
 .admin-card-header,.vendor-result-top,.vendor-results-header{display:flex;justify-content:space-between;align-items:flex-start;gap:.75rem;flex-wrap:wrap}
 .admin-badge{display:inline-flex;align-items:center;border-radius:999px;padding:.3rem .75rem;background:#ffe7b8;color:#8a5a00;font-size:.82rem;font-weight:700;text-transform:capitalize}
 .admin-badge.approved{background:#d9f4df;color:#1f5f3a}
