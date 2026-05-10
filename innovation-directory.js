@@ -478,6 +478,66 @@ function buildMarkerHtml(count) {
   return `<div style="position:relative;width:${size}px;height:${size}px;border-radius:999px;background:#f57c00;border:${border}px solid #fff;box-shadow:0 0 0 ${halo}px rgba(245,124,0,.18),0 8px 18px rgba(245,124,0,.28);">${label}</div>`;
 }
 
+function getBoundsZoom(spanLat, spanLng) {
+  const span = Math.max(spanLat, spanLng);
+  if (span < 0.08) return 9.5;
+  if (span < 0.2) return 8.5;
+  if (span < 0.5) return 7.5;
+  if (span < 1.5) return 6.5;
+  if (span < 4) return 5.5;
+  return 4.8;
+}
+
+function fitMapToPoints(activePoints) {
+  if (!directoryState.map) return;
+  if (!activePoints.length) {
+    directoryState.map?.setCenter?.(INDIA_CENTER);
+    directoryState.map?.setZoom?.(4.8);
+    return;
+  }
+  const lats = activePoints.map(({ point }) => Number(point.lat));
+  const lngs = activePoints.map(({ point }) => Number(point.lng));
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
+  const center = {
+    lat: (minLat + maxLat) / 2,
+    lng: (minLng + maxLng) / 2,
+  };
+  const spanLat = Math.abs(maxLat - minLat);
+  const spanLng = Math.abs(maxLng - minLng);
+  if (spanLat < 0.0005 && spanLng < 0.0005) {
+    directoryState.map?.setCenter?.(center);
+    directoryState.map?.setZoom?.(8.5);
+    return;
+  }
+  const boundsArray = [[minLng, minLat], [maxLng, maxLat]];
+  const boundsObjects = [{ lat: minLat, lng: minLng }, { lat: maxLat, lng: maxLng }];
+  const options = { padding: 56, maxZoom: 8.5, duration: 0 };
+  try {
+    if (typeof directoryState.map?.fitBounds === 'function') {
+      directoryState.map.fitBounds(boundsArray, options);
+      return;
+    }
+  } catch {}
+  try {
+    if (typeof directoryState.map?.fitBounds === 'function') {
+      directoryState.map.fitBounds(boundsObjects, options);
+      return;
+    }
+  } catch {}
+  try {
+    if (window.mappls?.LngLatBounds && typeof directoryState.map?.fitBounds === 'function') {
+      const bounds = new window.mappls.LngLatBounds(boundsArray[0], boundsArray[1]);
+      directoryState.map.fitBounds(bounds, options);
+      return;
+    }
+  } catch {}
+  directoryState.map?.setCenter?.(center);
+  directoryState.map?.setZoom?.(getBoundsZoom(spanLat, spanLng));
+}
+
 async function renderMapMarkers(vendors) {
   const ready = await ensureMap();
   if (!ready) return;
@@ -491,8 +551,7 @@ async function renderMapMarkers(vendors) {
     if (vendors.length) {
       statusEl.textContent = 'Matching innovators are listed below, but no usable coordinates could be derived from the current data yet.';
     }
-    directoryState.map?.setCenter?.(INDIA_CENTER);
-    directoryState.map?.setZoom?.(4.8);
+    fitMapToPoints([]);
     return;
   }
   const groupedPoints = groupMapPoints(points);
@@ -514,11 +573,7 @@ async function renderMapMarkers(vendors) {
       directoryState.markers.push(marker);
     });
   });
-  const first = points[0]?.point;
-  if (first) {
-    directoryState.map?.setCenter?.(first);
-    directoryState.map?.setZoom?.(5.5);
-  }
+  fitMapToPoints(points);
 }
 
 function renderPagination(totalPages, totalMatches) {
